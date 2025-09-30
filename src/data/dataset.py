@@ -1,12 +1,15 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 import nibabel as nib
+from nibabel.processing import resample_from_to
 import numpy as np
 from scipy.ndimage import zoom
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Union, Callable
 import pandas as pd
 import logging
+import matplotlib.pyplot as plt
+
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +46,9 @@ class OsteosarcomaDataset(Dataset):
         self.cache_data = cache_data
         self.is_train = is_train
         
+        # Drop rows with missing paths
+        self.data_df = self.data_df.dropna(subset=[self.segmentation_col]).reset_index(drop=True)
+
         # Cache for preprocessed data (before augmentation)
         self.preprocessed_cache = {}
         
@@ -64,7 +70,7 @@ class OsteosarcomaDataset(Dataset):
         # Get file paths
         image_path = self.data_df.loc[idx, self.image_col]
         segmentation_path = self.data_df.loc[idx, self.segmentation_col]
-        subject_id = self.data_df.loc[idx, 'subject'] if 'subject' in self.data_df.columns else f"subject_{idx}"
+        subject_id = self.data_df.loc[idx, 'pid_n'] if 'pid_n' in self.data_df.columns else f"subject_{idx}"
         
         # Load and preprocess base data (without augmentation)
         if original_idx in self.preprocessed_cache:
@@ -140,6 +146,11 @@ class OsteosarcomaDataset(Dataset):
             logger.warning(f"Spacing mismatch for {subject_id}: "
                           f"image {image_spacing} vs seg {seg_spacing}")
         
+        # Resample segmentations to match the image if affines are different
+        # Note: This assumes that the image is the reference
+        if not np.allclose(image_affine, seg_affine, atol=1e-3):
+            segmentation = resample_from_to(segmentation, image, order=0)
+        
         # Store original metadata
         original_metadata = {
             'subject_id': subject_id,
@@ -193,7 +204,7 @@ class OsteosarcomaDataset(Dataset):
         # Step 1: Swap axes (shortest axis last)
         if self.swap_axes:
             image_swapped, spacing_swapped, swap_info = self._swap_axes_to_standard(image, spacing)
-            segmentation_swapped, _, _ = self._swap_axes_to_standard(segmentation, spacing, is_seg=True)
+            segmentation_swapped, _, _ = self._swap_axes_to_standard(segmentation, spacing)
             processing_metadata['swap_info'] = swap_info
             processing_metadata['shape_after_swap'] = image_swapped.shape
         else:
@@ -216,10 +227,10 @@ class OsteosarcomaDataset(Dataset):
         
         # Step 3: Crop/Pad to target size
         image_final, crop_pad_info_img = self._crop_or_pad(
-            image_resampled, segmentation_resampled, is_seg=False
+            image_resampled, segmentation_resampled
         )
         segmentation_final, crop_pad_info_seg = self._crop_or_pad(
-            segmentation_resampled, None, is_seg=True
+            segmentation_resampled, segmentation_resampled
         )
         
         processing_metadata['crop_pad_info'] = {
@@ -241,7 +252,6 @@ class OsteosarcomaDataset(Dataset):
         self, 
         data: np.ndarray, 
         spacing: np.ndarray, 
-        is_seg: bool = False
     ) -> Tuple[np.ndarray, np.ndarray, Dict]:
         """Swap axes so shortest dimension is last"""
         if len(data.shape) != 3:
@@ -302,7 +312,6 @@ class OsteosarcomaDataset(Dataset):
         self, 
         data: np.ndarray, 
         segmentation: Optional[np.ndarray] = None,
-        is_seg: bool = False
     ) -> Tuple[np.ndarray, Dict]:
         """Simpler version that handles mixed crop/pad per axis"""
         current_shape = np.array(data.shape)
@@ -321,9 +330,9 @@ class OsteosarcomaDataset(Dataset):
             
             if current_len > target_len:
                 # Need to crop this axis
-                if self.crop_strategy == 'center' or (is_seg and segmentation is None):
+                if self.crop_strategy == 'center':
                     crop_start = (current_len - target_len) // 2
-                elif self.crop_strategy == 'foreground' and segmentation is not None and not is_seg:
+                if self.crop_strategy == 'foreground' and segmentation is not None:
                     crop_start, _ = self._get_foreground_crop_bounds_single_axis(segmentation, target_shape, axis)
                 else:
                     crop_start = (current_len - target_len) // 2
@@ -344,10 +353,7 @@ class OsteosarcomaDataset(Dataset):
                 pad_width = [(0, 0)] * 3
                 pad_width[axis] = (pad_before, pad_after)
                 
-                if is_seg:
-                    result = np.pad(result, pad_width, mode='constant', constant_values=0)
-                else:
-                    result = np.pad(result, pad_width, mode='constant', constant_values=0)
+                result = np.pad(result, pad_width, mode='constant', constant_values=0)
                 
                 operations.append(f'pad_axis_{axis}')
             
@@ -471,25 +477,18 @@ def custom_collate_fn(batch):
     # Return metadata as list (don't try to collate dictionaries)
     return images_batch, segmentations_batch, metadatas
 
-def quick_test():
+def quick_test(modality):
     """Quick test to check if data loading works"""
     import pandas as pd
     
-    test_data = {
-        'subject': ['OS_000001_01', 'OS_000001_01'],
-        'image_path': ['/exports/lkeb-hpc-data/XnatOsteosarcoma/os_data_tmp/os_data_tmp/reorg_DCM2NII/OS_000001/OS_000001_20060622/1101-T1W_GD_IR_SPIR_SAG.nii.gz',
-                       '/exports/lkeb-hpc-data/XnatOsteosarcoma/os_data_tmp/os_data_tmp/reorg_DCM2NII/OS_000001/OS_000001_20060622/1001-T1W_GD_IR_SPIR_TRA.nii.gz'],
-        'segmentation_path': ['/exports/lkeb-hpc/xwan/osteosarcoma/OS_seg_resample/OS_000001/OS_000001_20060622/gau_aff/SEG_1_1101-T1W_GD_IR_SPIR_SAG.nii.gz',
-                              '/exports/lkeb-hpc/xwan/osteosarcoma/OS_seg_resample/OS_000001/OS_000001_20060622/gau_aff/SEG_1_1001-T1W_GD_IR_SPIR_TRA.nii.gz']
-    }
-    test_df = pd.DataFrame(test_data)
+    test_df = pd.read_csv(f'/exports/lkeb-hpc/xwan/osteosarcoma/preprocessing/dataloader/{modality}_df.csv')
     
     print("Initializing dataset...")
     dataset = OsteosarcomaDataset(
         data_df=test_df,
         image_col='image_path',
-        segmentation_col='segmentation_path',
-        target_spacing=(0.53, 0.53, 6.3),
+        segmentation_col='seg_v0_path',
+        target_spacing=(0.39, 0.39, 4.58),
         target_size=(512, 512, 30),
         normalize=True,
         crop_strategy='foreground'
@@ -505,26 +504,54 @@ def quick_test():
     )
     
     print("Loading first batch...")
-    i = 1
+    
+    # Simple version for quick testing
+    def quick_overlay(image, seg, title, save_path):
+        """Simple overlay with 3 slices"""
+        slices = [12, 15, 18]  # Example slice indices
+        
+        fig, axes = plt.subplots(3, 3, figsize=(15, 15))
+        fig.suptitle(title, fontsize=14)
+        
+        for idx, slice_idx in enumerate(slices):
+            img_slice = image[:, :, slice_idx]
+            seg_slice = seg[:, :, slice_idx]
+            
+            # Image only
+            axes[idx, 0].imshow(img_slice, cmap='gray')
+            axes[idx, 0].set_title(f'Slice {slice_idx} - Image')
+            axes[idx, 0].axis('off')
+
+            # Seg only
+            axes[idx, 1].imshow(seg_slice, cmap='gray')
+            axes[idx, 1].set_title(f'Slice {slice_idx} - Seg')
+            axes[idx, 1].axis('off')
+            
+            # Overlay
+            axes[idx, 2].imshow(img_slice, cmap='gray')
+            axes[idx, 2].imshow(seg_slice, cmap='jet', alpha=0.5)
+            axes[idx, 2].set_title(f'Slice {slice_idx} - Overlay')
+            axes[idx, 2].axis('off')
+        
+        plt.tight_layout()
+        plt.savefig(save_path, dpi=120, bbox_inches='tight')
+        plt.close()
+
+    # Usage in your existing loop:
+    i = 0
     for images, segs, metadata in loader:
-        print("✓ Success! Data loading works.")
-        print(f"  Batch images shape: {images.shape}")
-        print(f"  Batch segs shape: {segs.shape}")
-        print(f"  Sample subject: {metadata[0]['subject_id']}")
-        
-        # Quick visualization
-        import matplotlib.pyplot as plt
-        image = images[0, 0].numpy()  # First sample, remove channel
-        seg = segs[0].numpy()
-        
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
-        ax1.imshow(image[:, :, image.shape[2]//2], cmap='gray')
-        ax1.set_title('Image - Middle Slice')
-        ax2.imshow(seg[:, :, seg.shape[2]//2], cmap='gray')
-        ax2.set_title('Segmentation - Middle Slice')
-        plt.show()
-        plt.savefig(f'test_{i}.png')
-        i += 1
+        for batch_idx in range(images.shape[0]):
+            image = images[batch_idx, 0].numpy()
+            seg = segs[batch_idx].numpy()
+
+            subject_id = metadata[batch_idx].get('subject_id', f'unknown')
+            print(f"Sample {i} - Subject ID: {subject_id}, Image shape: {image.shape}, Seg shape: {seg.shape}")
+            quick_overlay(
+                image, seg,
+                f'Sample {i} - {subject_id}',
+                f'/exports/lkeb-hpc/xwan/osteosarcoma/preprocessing/dataloader/{modality}_figs/V0/{i}_{subject_id}.png'
+            )
+            i += 1
 
 # Run the quick test
-quick_test()
+quick_test(modality='T2W_FS')
