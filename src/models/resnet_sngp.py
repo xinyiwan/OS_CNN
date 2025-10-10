@@ -5,13 +5,13 @@ import torch.nn.functional as F
 import os, sys
 
 # Add the project root to Python path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+project_root = '/exports/lkeb-hpc/xwan/osteosarcoma/working/OS_CNN/src'
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from src.models.pytorch_gaussian_process import  pyRandomFeatureGaussianProcess, mean_field_logits  # Custom
-from src.pytorch_metrics_dev import Metrics  # Custom
-from src.pytorch_spectral_normalization import SpectralNormalizationConv3D # Custom
+from models.pytorch_gaussian_process import  pyRandomFeatureGaussianProcess, mean_field_logits  # Custom
+from models.pytorch_metrics_dev import Metrics  # Custom
+from models.pytorch_spectral_normalization import SpectralNormalizationConv3D # Custom
 
 class BasicBlock(nn.Module):
     def __init__(self, in_planes, planes, width_multiplier, stride=1, use_SN=False, spec_norm_bound=None):
