@@ -477,17 +477,20 @@ def custom_collate_fn(batch):
     # Return metadata as list (don't try to collate dictionaries)
     return images_batch, segmentations_batch, metadatas
 
-def quick_test(modality):
+def quick_test(modality, version):
     """Quick test to check if data loading works"""
     import pandas as pd
+    import os
     
     test_df = pd.read_csv(f'/exports/lkeb-hpc/xwan/osteosarcoma/preprocessing/dataloader/{modality}_df.csv')
+    fig_dir = f'/exports/lkeb-hpc/xwan/osteosarcoma/preprocessing/dataloader/{modality}_figs/V{version}'
+    os.makedirs(fig_dir, exist_ok=True)
     
     print("Initializing dataset...")
     dataset = OsteosarcomaDataset(
         data_df=test_df,
         image_col='image_path',
-        segmentation_col='seg_v0_path',
+        segmentation_col=f'seg_v{version}_path',
         target_spacing=(0.39, 0.39, 4.58),
         target_size=(512, 512, 30),
         normalize=True,
@@ -502,6 +505,8 @@ def quick_test(modality):
         num_workers=0,
         collate_fn=custom_collate_fn  # Add this line
     )
+
+    print(f"Modality: {modality}; Version: {version}; Lenth: {dataset.__len__()}")
     
     print("Loading first batch...")
     
@@ -539,19 +544,35 @@ def quick_test(modality):
 
     # Usage in your existing loop:
     i = 0
-    for images, segs, metadata in loader:
-        for batch_idx in range(images.shape[0]):
-            image = images[batch_idx, 0].numpy()
-            seg = segs[batch_idx].numpy()
+    # for images, segs, metadata in loader:
+    #     for batch_idx in range(images.shape[0]):
+    #         image = images[batch_idx, 0].numpy()
+    #         seg = segs[batch_idx].numpy()
 
-            subject_id = metadata[batch_idx].get('subject_id', f'unknown')
-            print(f"Sample {i} - Subject ID: {subject_id}, Image shape: {image.shape}, Seg shape: {seg.shape}")
-            quick_overlay(
-                image, seg,
-                f'Sample {i} - {subject_id}',
-                f'/exports/lkeb-hpc/xwan/osteosarcoma/preprocessing/dataloader/{modality}_figs/V0/{i}_{subject_id}.png'
-            )
-            i += 1
+    #         subject_id = metadata[batch_idx].get('subject_id', f'unknown')
+    #         print(f"Sample {i} - Subject ID: {subject_id}, Image shape: {image.shape}, Seg shape: {seg.shape}")
+    #         quick_overlay(
+    #             image, seg,
+    #             f'Sample {i} - {subject_id}',
+    #             f'/exports/lkeb-hpc/xwan/osteosarcoma/preprocessing/dataloader/{modality}_figs/V{version}/{i}_{subject_id}.png'
+    #         )
+    #         i += 1
 
 # Run the quick test
-quick_test(modality='T2W_FS')
+
+
+quick_test(modality='T1W_FS_C', version=0)
+quick_test(modality='T1W_FS_C', version=1)
+quick_test(modality='T1W_FS_C', version=9)
+
+
+
+quick_test(modality='T1W', version=0)
+quick_test(modality='T1W', version=1)
+quick_test(modality='T1W', version=9)
+
+
+quick_test(modality='T2W_FS', version=0)
+quick_test(modality='T2W_FS', version=1)
+quick_test(modality='T2W_FS', version=9)
+
