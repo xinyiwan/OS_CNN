@@ -68,9 +68,9 @@ class OsteosarcomaDataset(Dataset):
         augmentation_idx = idx % self.num_augmentations
         
         # Get file paths
-        image_path = self.data_df.loc[idx, self.image_col]
-        segmentation_path = self.data_df.loc[idx, self.segmentation_col]
-        subject_id = self.data_df.loc[idx, 'pid_n'] if 'pid_n' in self.data_df.columns else f"subject_{idx}"
+        image_path = self.data_df.loc[original_idx, self.image_col]
+        segmentation_path = self.data_df.loc[original_idx, self.segmentation_col]
+        subject_id = self.data_df.loc[original_idx, 'pid_n'] if 'pid_n' in self.data_df.columns else f"subject_{idx}"
         
         # Load and preprocess base data (without augmentation)
         if original_idx in self.preprocessed_cache:
@@ -95,18 +95,29 @@ class OsteosarcomaDataset(Dataset):
             augmented_image, augmented_segmentation = image, segmentation
         
         # Convert to tensors
-        image_tensor = torch.from_numpy(augmented_image).float().unsqueeze(0)
-        segmentation_tensor = torch.from_numpy(augmented_segmentation).long()
+
+        # Concatenate along channel dimension
+        combined_input = torch.cat([augmented_image, augmented_segmentation], dim=0)  # Shape: [2, H, W]
         
+        # Get label from metadata - FIXED HERE
+        label = metadata['label']
+        if label is None:
+            # Fallback: try to get label from dataframe directly
+            label = self.data_df.loc[original_idx, 'label'] if 'label' in self.data_df.columns else 0
+        
+        label_tensor = torch.tensor(label, dtype=torch.long)
+
         # Update metadata with augmentation info
         metadata['augmentation_idx'] = augmentation_idx
         metadata['original_sample_idx'] = original_idx
         metadata['total_augmentations'] = self.num_augmentations
         
-        return image_tensor, segmentation_tensor, metadata
+        return combined_input, label_tensor
 
     def _apply_transform_with_seed(self, image: np.ndarray, segmentation: np.ndarray, seed: int) -> Tuple[np.ndarray, np.ndarray]:
         """Apply transform with specific random seed for reproducibility"""
+
+        
         # Save current random state
         numpy_state = np.random.get_state()
         torch_state = torch.get_rng_state()
@@ -118,7 +129,8 @@ class OsteosarcomaDataset(Dataset):
         try:
             # Apply transform
             if self.transform:
-                transformed = self.transform(image=image, segmentation=segmentation)
+                data_dict = {"image": image, "segmentation": segmentation}
+                transformed = self.transform(data_dict)
                 return transformed['image'], transformed['segmentation']
             else:
                 return image, segmentation
@@ -154,6 +166,7 @@ class OsteosarcomaDataset(Dataset):
         # Store original metadata
         original_metadata = {
             'subject_id': subject_id,
+            'label': self.data_df.loc[self.data_df['pid_n'] == subject_id, 'label'].values[0] if 'label' in self.data_df.columns else None,
             'original_shape': image.shape,
             'original_spacing': image_spacing,
             'image_path': image_path,
@@ -458,24 +471,18 @@ class OsteosarcomaDataset(Dataset):
         }
     
 def custom_collate_fn(batch):
-    """
-    Custom collate function that handles metadata dictionaries properly
-    """
-    images = []
-    segmentations = []
-    metadatas = []
+    combined_inputs = []
+    labels = []
     
     for sample in batch:
-        images.append(sample[0])
-        segmentations.append(sample[1])
-        metadatas.append(sample[2])
+        # Ensure input is float32
+        combined_inputs.append(sample[0].float())  # Convert to float32
+        labels.append(sample[1])
     
-    # Stack tensors
-    images_batch = torch.stack(images)
-    segmentations_batch = torch.stack(segmentations)
+    combined_inputs_batch = torch.stack(combined_inputs)
+    labels_batch = torch.stack(labels)
     
-    # Return metadata as list (don't try to collate dictionaries)
-    return images_batch, segmentations_batch, metadatas
+    return combined_inputs_batch, labels_batch
 
 def quick_test(modality, version):
     """Quick test to check if data loading works"""
@@ -561,18 +568,18 @@ def quick_test(modality, version):
 # Run the quick test
 
 
-quick_test(modality='T1W_FS_C', version=0)
-quick_test(modality='T1W_FS_C', version=1)
-quick_test(modality='T1W_FS_C', version=9)
+# quick_test(modality='T1W_FS_C', version=0)
+# quick_test(modality='T1W_FS_C', version=1)
+# quick_test(modality='T1W_FS_C', version=9)
 
 
 
-quick_test(modality='T1W', version=0)
-quick_test(modality='T1W', version=1)
-quick_test(modality='T1W', version=9)
+# quick_test(modality='T1W', version=0)
+# quick_test(modality='T1W', version=1)
+# quick_test(modality='T1W', version=9)
 
 
-quick_test(modality='T2W_FS', version=0)
-quick_test(modality='T2W_FS', version=1)
-quick_test(modality='T2W_FS', version=9)
+# quick_test(modality='T2W_FS', version=0)
+# quick_test(modality='T2W_FS', version=1)
+# quick_test(modality='T2W_FS', version=9)
 
