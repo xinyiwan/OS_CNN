@@ -22,6 +22,27 @@ from training.trainer import create_training_function, create_testing_function
 from utils.callbacks import BestModelCallback
 from utils.helpers import setup_experiment_paths, suggest_common_hyperparameters, calculate_ensemble_metric
 from data.load_datapath import load_os_by_modality_version
+import subprocess
+
+def print_detailed_gpu_memory():
+    print("=== DETAILED GPU MEMORY INFO ===")
+    
+    # PyTorch memory info
+    if torch.cuda.is_available():
+        print(f"PyTorch allocated: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
+        print(f"PyTorch reserved: {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
+        
+        # Get actual GPU memory usage via nvidia-smi
+        try:
+            result = subprocess.run(['nvidia-smi', '--query-gpu=memory.total,memory.used,memory.free', '--format=csv,nounits,noheader'], 
+                                  capture_output=True, text=True)
+            if result.returncode == 0:
+                total, used, free = result.stdout.strip().split(',')
+                print(f"nvidia-smi - Total: {int(total)/1024:.2f} GB, Used: {int(used)/1024:.2f} GB, Free: {int(free)/1024:.2f} GB")
+        except:
+            print("Could not run nvidia-smi")
+    
+    print("================================")
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Generic Model Tuning Script")
@@ -144,8 +165,8 @@ def main():
         device='cuda' if torch.cuda.is_available() else 'cpu'
     )
     
-    print(f"Experiment Config: {config}")
-
+    print('device:', config.device)
+    print_detailed_gpu_memory()
     # Setup device and seeds
     torch.manual_seed(config.random_seed)
     if torch.cuda.is_available():
@@ -251,12 +272,14 @@ def main():
             train_val_data = (
                 [image_files[i] for i in train_val_indices],
                 [segmentation_files[i] for i in train_val_indices],
-                [labels[i] for i in train_val_indices]
+                [labels[i] for i in train_val_indices],
+                [subjects[i] for i in train_val_indices]  # Add subjects
             )
             test_data = (
                 [image_files[i] for i in test_indices],
                 [segmentation_files[i] for i in test_indices],
-                [labels[i] for i in test_indices]
+                [labels[i] for i in test_indices],
+                [subjects[i] for i in test_indices]  # Add subjects
             )
             
             # Run inner CV
