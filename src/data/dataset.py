@@ -1,3 +1,8 @@
+import os, sys
+# Add the project root to Python path
+project_root = '/exports/lkeb-hpc/xwan/osteosarcoma/working/OS_CNN/src'
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 import torch
 from torch.utils.data import Dataset, DataLoader
 import nibabel as nib
@@ -9,6 +14,7 @@ from typing import List, Dict, Tuple, Optional, Union, Callable
 import pandas as pd
 import logging
 import matplotlib.pyplot as plt
+from data.transform import get_augmentation_transforms, get_non_aug_transforms
 
 
 logger = logging.getLogger(__name__)
@@ -90,8 +96,13 @@ class OsteosarcomaDataset(Dataset):
             augmented_image, augmented_segmentation = self._apply_transform_with_seed(
                 image, segmentation, seed
             )
-        else:
+        elif self.transform is not None and not self.is_train:
             # No augmentation or validation mode
+            seed = 42 # but the seed won't be used
+            augmented_image, augmented_segmentation = self._apply_transform_with_seed(
+                image, segmentation, seed
+            )
+        else:
             augmented_image, augmented_segmentation = image, segmentation
         
         # Convert to tensors
@@ -112,7 +123,7 @@ class OsteosarcomaDataset(Dataset):
         metadata['original_sample_idx'] = original_idx
         metadata['total_augmentations'] = self.num_augmentations
         
-        return combined_input, label_tensor
+        return combined_input, label_tensor, metadata
 
     def _apply_transform_with_seed(self, image: np.ndarray, segmentation: np.ndarray, seed: int) -> Tuple[np.ndarray, np.ndarray]:
         """Apply transform with specific random seed for reproducibility"""
@@ -473,16 +484,18 @@ class OsteosarcomaDataset(Dataset):
 def custom_collate_fn(batch):
     combined_inputs = []
     labels = []
+    metadata = []
     
     for sample in batch:
         # Ensure input is float32
         combined_inputs.append(sample[0].float())  # Convert to float32
         labels.append(sample[1])
+        metadata.append(sample[2])
     
     combined_inputs_batch = torch.stack(combined_inputs)
     labels_batch = torch.stack(labels)
     
-    return combined_inputs_batch, labels_batch
+    return combined_inputs_batch, labels_batch, metadata
 
 def quick_test(modality, version):
     """Quick test to check if data loading works"""
@@ -498,8 +511,9 @@ def quick_test(modality, version):
         data_df=test_df,
         image_col='image_path',
         segmentation_col=f'seg_v{version}_path',
+        transform=get_augmentation_transforms(),
         target_spacing=(0.39, 0.39, 4.58),
-        target_size=(512, 512, 30),
+        target_size=(384, 384, 22),
         normalize=True,
         crop_strategy='foreground'
     )
@@ -509,7 +523,7 @@ def quick_test(modality, version):
         dataset, 
         batch_size=1, 
         shuffle=False, 
-        num_workers=0,
+        num_workers=1,
         collate_fn=custom_collate_fn  # Add this line
     )
 
@@ -551,35 +565,31 @@ def quick_test(modality, version):
 
     # Usage in your existing loop:
     i = 0
-    # for images, segs, metadata in loader:
-    #     for batch_idx in range(images.shape[0]):
-    #         image = images[batch_idx, 0].numpy()
-    #         seg = segs[batch_idx].numpy()
-
-    #         subject_id = metadata[batch_idx].get('subject_id', f'unknown')
-    #         print(f"Sample {i} - Subject ID: {subject_id}, Image shape: {image.shape}, Seg shape: {seg.shape}")
-    #         quick_overlay(
-    #             image, seg,
-    #             f'Sample {i} - {subject_id}',
-    #             f'/exports/lkeb-hpc/xwan/osteosarcoma/preprocessing/dataloader/{modality}_figs/V{version}/{i}_{subject_id}.png'
-    #         )
-    #         i += 1
-
-# Run the quick test
-
-
-# quick_test(modality='T1W_FS_C', version=0)
-# quick_test(modality='T1W_FS_C', version=1)
-# quick_test(modality='T1W_FS_C', version=9)
-
+    for batch_data, labels, metadata in loader:
+        # batch_data shape: [batch_size, 2, H, W]
+        # Where channel 0 = image, channel 1 = segmentation
+        
+        batch_size = batch_data.shape[0]
+        
+        for batch_idx in range(batch_size):
+            # Extract image and segmentation for this sample
+            image = batch_data[batch_idx, 0].numpy()  # Shape: [H, W]
+            seg = batch_data[batch_idx, 1].numpy()    # Shape: [H, W]
+            
+            subject_id = metadata[batch_idx].get('subject_id', f'unknown')
+            print(f"Sample {i} - Subject ID: {subject_id}, Image shape: {image.shape}, Seg shape: {seg.shape}")
+            quick_overlay(
+                image, seg,
+                f'Sample {i} - {subject_id}',
+                f'/exports/lkeb-hpc/xwan/osteosarcoma/preprocessing/dataloader/{modality}_figs/V{version}/{i}_{subject_id}.png'
+            )
+            i += 1
 
 
-# quick_test(modality='T1W', version=0)
-# quick_test(modality='T1W', version=1)
-# quick_test(modality='T1W', version=9)
+if __name__ == "__main__":
+    
+    quick_test(modality='T1W', version=0)
 
-
-# quick_test(modality='T2W_FS', version=0)
-# quick_test(modality='T2W_FS', version=1)
-# quick_test(modality='T2W_FS', version=9)
+    # quick_test(modality='T1W_FS_C', version=0)
+    # quick_test(modality='T2W_FS', version=0)
 
