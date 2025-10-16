@@ -25,14 +25,19 @@ import cv2
 def get_augmentation_transforms():
     return Compose([
         EnsureChannelFirstd(keys=["image", "segmentation"], channel_dim="no_channel", allow_missing_keys=True),
-        RandAdjustContrastd(keys=["image"], prob=0.5, gamma=(0.7, 1.5)),
-        RandShiftIntensityd(keys=["image"], prob=0.5, offsets=(-0.1, 0.1)),
-        RandGaussianNoised(keys=["image"], prob=0.5, mean=0.0, std=0.2),
+        # RandAdjustContrastd(keys=["image"], prob=0.5, gamma=(0.7, 1.5)),
+        # RandShiftIntensityd(keys=["image"], prob=0.5, offsets=(-0.1, 0.1)),
+        # RandGaussianNoised(keys=["image"], prob=0.5, mean=0.0, std=0.2),
         # RandGaussianSmoothd(keys=["image"], prob=0.5, sigma_x=(0.5, 2.0), sigma_y=(0.5, 2.0), sigma_z=(0.5, 2.0)),
 
         RandFlipd(keys=["image", "segmentation"], prob=0.5, spatial_axis=0),
         RandFlipd(keys=["image", "segmentation"], prob=0.5, spatial_axis=1),
         RandFlipd(keys=["image", "segmentation"], prob=0.5, spatial_axis=2),
+    ])
+
+def get_non_aug_transforms():
+    return Compose([
+        EnsureChannelFirstd(keys=["image", "segmentation"], channel_dim="no_channel", allow_missing_keys=True),
     ])
 
 
