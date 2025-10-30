@@ -11,8 +11,8 @@ import torch
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import pandas as pd
-from data.dataset import OsteosarcomaDataset
-from data.transform import get_augmentation_transforms
+from data.dataset import OsteosarcomaDataset, custom_collate_fn
+from data.transform import get_augmentation_transforms, get_non_aug_transforms
 from models.model_factory import BaseModelFactory
 import optuna
 
@@ -72,7 +72,7 @@ class CrossValidationFramework:
         
         # Get dataset parameters from hyperparams
         target_spacing = hyperparams.get("target_spacing", (0.39, 0.39, 4.58))
-        target_size = hyperparams.get("target_size", (512, 512, 30))
+        target_size = hyperparams.get("target_size", (384, 384, 22))
         normalize = hyperparams.get("normalize", True)
         crop_strategy = hyperparams.get("crop_strategy", "foreground")
         
@@ -81,7 +81,7 @@ class CrossValidationFramework:
             data_df=train_df,
             image_col='image_path',
             segmentation_col='segmentation_path',
-            transform=get_augmentation_transforms(),  # You can add your transform here if needed
+            transform=get_augmentation_transforms(),  
             num_augmentations=num_augmentations,
             target_spacing=target_spacing,
             target_size=target_size,
@@ -96,7 +96,7 @@ class CrossValidationFramework:
             data_df=val_df,
             image_col='image_path',
             segmentation_col='segmentation_path',
-            transform=None,  # No augmentation for validation
+            transform=get_non_aug_transforms(),  # No augmentation for validation
             num_augmentations=1,
             target_spacing=target_spacing,
             target_size=target_size,
@@ -111,7 +111,7 @@ class CrossValidationFramework:
             data_df=test_df,
             image_col='image_path',
             segmentation_col='segmentation_path',
-            transform=None,  # No augmentation for test
+            transform=get_non_aug_transforms(),  # No augmentation for test
             num_augmentations=1,
             target_spacing=target_spacing,
             target_size=target_size,
@@ -125,7 +125,7 @@ class CrossValidationFramework:
         train_loader = DataLoader(
             train_dataset, 
             batch_size=batch_size, 
-            num_workers=8, 
+            num_workers=10, 
             shuffle=True, 
             pin_memory=pin_memory,
             collate_fn=custom_collate_fn
@@ -133,7 +133,7 @@ class CrossValidationFramework:
         val_loader = DataLoader(
             val_dataset, 
             batch_size=batch_size, 
-            num_workers=8,
+            num_workers=10,
             shuffle=False, 
             pin_memory=pin_memory,
             collate_fn=custom_collate_fn
@@ -141,7 +141,7 @@ class CrossValidationFramework:
         test_loader = DataLoader(
             test_dataset, 
             batch_size=batch_size, 
-            num_workers=8,
+            num_workers=10,
             shuffle=False, 
             pin_memory=pin_memory,
             collate_fn=custom_collate_fn
@@ -154,8 +154,8 @@ class CrossValidationFramework:
     
     def run_inner_cv(self,
                     model_factory: BaseModelFactory,
-                    train_val_data: Tuple[List, List, List],
-                    test_data: Tuple[List, List, List],
+                    train_val_data: Tuple[List, List, List, List],
+                    test_data: Tuple[List, List, List, List],
                     hyperparams: Dict[str, Any],
                     device: torch.device,
                     training_function: Callable,
@@ -165,36 +165,57 @@ class CrossValidationFramework:
                     trial: optuna.Trial) -> Tuple[float, List]:
         """Run inner cross-validation"""
         
-        train_val_images, train_val_segmentations, train_val_labels = train_val_data
-        test_images, test_segmentations, test_labels = test_data
+        train_val_images, train_val_segmentations, train_val_labels, train_val_subjects = train_val_data
+        test_images, test_segmentations, test_labels, test_subjects = test_data
         
+        # Get unique subjects and their labels for stratified splitting
+        unique_subjects = list(set(train_val_subjects))
+        subject_to_label = {}
+        for subject, label in zip(train_val_subjects, train_val_labels):
+            subject_to_label[subject] = label
+        subject_labels = [subject_to_label[subject] for subject in unique_subjects]
+            
         inner_skf = StratifiedKFold(n_splits=self.n_inner_folds, 
                                   shuffle=True, random_state=self.random_seed)
         fold_metrics = []
         test_predictions = []
+        all_test_labels = None
         
-        for inner_fold, (train_idx, val_idx) in enumerate(
-            inner_skf.split(train_val_images, train_val_labels)):
+        for inner_fold, (subject_train_idx, subject_val_idx) in enumerate(
+            inner_skf.split(unique_subjects, subject_labels)):
             
             print(f"Inner Fold {inner_fold + 1}/{self.n_inner_folds}")
+
+            # Get train and validation subjects
+            train_subjects = [unique_subjects[i] for i in subject_train_idx]
+            val_subjects = [unique_subjects[i] for i in subject_val_idx]
             
+            print(f"Train subjects: {len(train_subjects)}, Val subjects: {len(val_subjects)}")
+
+            # Get indices for images belonging to train and validation subjects
+            train_indices = [i for i, subject in enumerate(train_val_subjects) if subject in train_subjects]
+            val_indices = [i for i, subject in enumerate(train_val_subjects) if subject in val_subjects]
+            print(f"Train images: {len(train_indices)}, Val images: {len(val_indices)}")
+                    
             # Split data for this inner fold
             train_data = (
-                [train_val_images[i] for i in train_idx],
-                [train_val_segmentations[i] for i in train_idx],
-                [train_val_labels[i] for i in train_idx]
+                [train_val_images[i] for i in train_indices],
+                [train_val_segmentations[i] for i in train_indices],
+                [train_val_labels[i] for i in train_indices]
             )
             val_data = (
-                [train_val_images[i] for i in val_idx],
-                [train_val_segmentations[i] for i in val_idx],
-                [train_val_labels[i] for i in val_idx]
+                [train_val_images[i] for i in val_indices],
+                [train_val_segmentations[i] for i in val_indices],
+                [train_val_labels[i] for i in val_indices]
             )
+            test_data_images_only = (test_data[0], test_data[1], test_data[2])
+
             
             # Create data loaders
             train_loader, val_loader, test_loader = self.create_data_loaders(
-                train_data, val_data, test_data, hyperparams, device.type == 'cuda'
+                train_data, val_data, test_data_images_only, hyperparams, device.type == 'cuda'
             )
-            
+
             # Create model, optimizer and loss function
             model = model_factory.create_model(hyperparams)
             optimizer = model_factory.create_optimizer(model, hyperparams)
@@ -247,23 +268,3 @@ class CrossValidationFramework:
         
         mean_inner_metric = np.mean(fold_metrics)
         return mean_inner_metric, test_predictions, all_test_labels
-
-# Add the custom collate function at the module level
-def custom_collate_fn(batch):
-    """
-    Custom collate function for (combined_input, label) format
-    combined_input: [2, H, W] tensor (channel 0: image, channel 1: segmentation)
-    label: scalar tensor
-    """
-    combined_inputs = []
-    labels = []
-    
-    for sample in batch:
-        combined_inputs.append(sample[0])  # [2, H, W] tensor
-        labels.append(sample[1])           # scalar tensor
-    
-    # Stack tensors
-    combined_inputs_batch = torch.stack(combined_inputs)  # [B, 2, H, W]
-    labels_batch = torch.stack(labels)                    # [B]
-    
-    return combined_inputs_batch, labels_batch

@@ -18,6 +18,8 @@ from utils.visualization import plot_loss
 from utils.helpers import load_checkpoint
 from models.resnet_sngp import mean_field_logits
 from utils.metrics import compute_classification_metrics, compute_expected_calibration_error
+import time
+from datetime import timedelta
 
 def create_training_function(model_type: str, 
                              prefix: str,
@@ -55,6 +57,7 @@ def create_training_function(model_type: str,
         patience_count = 0
 
         for epoch in range(epochs):
+            epoch_start = time.time()
             if 'gp' in model_type and epoch > 0:
                 model.classifier.reset_covariance_matrix()
 
@@ -62,8 +65,9 @@ def create_training_function(model_type: str,
             model.train()
             epoch_train_loss = 0
 
-            for batch_data, batch_labels in train_loader:
-                batch_data, batch_labels = batch_data.to(device).float() , batch_labels.to(device)
+            for batch_data, batch_labels, _ in train_loader:
+                batch_data  = batch_data.to(device).float()
+                batch_labels = batch_labels.to(device)
                 optimizer.zero_grad()
 
                 # Forward pass with mixed precision
@@ -89,8 +93,12 @@ def create_training_function(model_type: str,
             val_all_labels = []
 
             with torch.no_grad():
-                for val_data, val_labels in val_loader:
-                    val_data, val_labels = val_data.to(device), val_labels.to(device)
+                for val_data, val_labels, _ in val_loader:
+                    # Ensure data is float32 and on device
+                    val_data = val_data.to(device, dtype=torch.float32)  # Explicit float32
+                    val_labels = val_labels.to(device)
+
+                    optimizer.zero_grad()
 
                     with autocast(device_type='cuda'):
                         val_outputs = model(val_data)
@@ -148,6 +156,8 @@ def create_training_function(model_type: str,
             os.makedirs(loss_save_dir, exist_ok=True)
             title = f"trial_{trial.number}_{prefix}" if trial is not None else prefix
             plot_loss(train_loss_history, val_loss_history, prefix=f'trial_{trial.number}_{prefix}', save_path=loss_save_dir, title=title)
+            epoch_time = time.time() - epoch_start
+            print(f"Epoch {epoch+1} completed in {epoch_time:.2f} seconds")
             
         print("Training finished")
 
@@ -185,14 +195,15 @@ def create_testing_function(model_type: str,
         model = load_checkpoint(model, None, checkpoint_dir=checkpoint_dir, prefix=prefix)
         
         model.eval()
-        model.to(device)
+        model.to(device).float()
         
         all_probs = []
         all_labels = []
         
         with torch.no_grad():
-            for images, labels in test_loader:
-                images, labels = images.to(device), labels.to(device)
+            for images, labels, _ in test_loader:
+                images = images.to(device, dtype=torch.float32)
+                labels = labels.to(device, dtype=torch.float32)
                 
                 if 'gp' in model_type:
                     logits, covmat = model(images, return_covmat=True)
