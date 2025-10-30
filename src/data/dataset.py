@@ -15,6 +15,7 @@ import pandas as pd
 import logging
 import matplotlib.pyplot as plt
 from data.transform import get_augmentation_transforms, get_non_aug_transforms
+from argparse import ArgumentParser
 
 
 logger = logging.getLogger(__name__)
@@ -533,6 +534,10 @@ def quick_test(modality, version):
     
     # Simple version for quick testing
     def quick_overlay(image, seg, title, save_path):
+
+        # create folders if not exist
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        
         """Simple overlay with 3 slices"""
         slices = [12, 15, 18]  # Example slice indices
         
@@ -581,14 +586,19 @@ def quick_test(modality, version):
             quick_overlay(
                 image, seg,
                 f'Sample {i} - {subject_id}',
-                f'/exports/lkeb-hpc/xwan/osteosarcoma/preprocessing/dataloader/{modality}_figs/V{version}/{i}_{subject_id}.png'
+                f'/exports/lkeb-hpc/xwan/osteosarcoma/preprocessing/dataloader/{modality}_figs_2/V{version}/{i}_{subject_id}.png'
             )
             i += 1
 
 
 if __name__ == "__main__":
+
+    args = ArgumentParser()
+    args.add_argument('--modality', type=str, default='T1W', help='Modality to test')
+    args.add_argument('--version', type=int, default=0, help='Segmentation version to test')
+    parsed_args = args.parse_args() 
     
-    quick_test(modality='T1W', version=0)
+    quick_test(modality=parsed_args.modality, version=parsed_args.version)
 
     # quick_test(modality='T1W_FS_C', version=0)
     # quick_test(modality='T2W_FS', version=0)
