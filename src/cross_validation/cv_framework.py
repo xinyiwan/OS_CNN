@@ -1,6 +1,6 @@
 import os, sys
 # Add the project root to Python path
-project_root = '/exports/lkeb-hpc/xwan/osteosarcoma/working/OS_CNN/src'
+project_root = '/projects/prjs1779/Osteosarcoma/OS_CNN/src'
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
@@ -202,7 +202,7 @@ class CrossValidationFramework:
             model.to(device).float()
             
             # Learning Rate Scheduler
-            scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.9, patience=5, verbose=True)
+            scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.9, patience=5)
 
             # Train model
             training_function(

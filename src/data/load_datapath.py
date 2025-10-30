@@ -1,7 +1,7 @@
 import pandas as pd
 
 
-LABELS_CSV = '/exports/lkeb-hpc/xwan/osteosarcoma/clinical_features/clinical_features_factorized.csv'
+LABELS_CSV = '/projects/prjs1779/Osteosarcoma/clinical_features/clinical_features_factorized.csv'
 
 def load_os_by_modality_version(modality, version, return_subjects=False):
     """
@@ -17,8 +17,17 @@ def load_os_by_modality_version(modality, version, return_subjects=False):
     """
     
     # Load dataframes
-    df_path = f'/exports/lkeb-hpc/xwan/osteosarcoma/preprocessing/dataloader/{modality}_df.csv'
+    df_path = f'/projects/prjs1779/Osteosarcoma/preprocessing/{modality}_df.csv'
     df = pd.read_csv(df_path)
+
+    # replace path for snail
+    # If you know which columns contain file paths
+    path_columns = ['image_path', 'seg_v0_path', 'seg_v1_path', 'seg_v9_path'] 
+    for col in path_columns:
+        if col in df.columns:
+            df[col] = df[col].str.replace('/exports/lkeb-hpc-data/XnatOsteosarcoma/', '/projects/prjs1779/')
+            df[col] = df[col].str.replace('/exports/lkeb-hpc/xwan/osteosarcoma/', '/projects/prjs1779/os_data_tmp/os_data_tmp/')
+
     labels_df = pd.read_csv(LABELS_CSV)
     
     # Filter included images

@@ -1,7 +1,7 @@
 import os, sys
 # Add the project root to Python path
 # project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-project_root = '/exports/lkeb-hpc/xwan/osteosarcoma/working/OS_CNN/src'
+project_root = '/projects/prjs1779/Osteosarcoma/OS_CNN/src'
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 

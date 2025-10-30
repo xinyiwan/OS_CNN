@@ -489,8 +489,8 @@ def quick_test(modality, version):
     import pandas as pd
     import os
     
-    test_df = pd.read_csv(f'/exports/lkeb-hpc/xwan/osteosarcoma/preprocessing/dataloader/{modality}_df.csv')
-    fig_dir = f'/exports/lkeb-hpc/xwan/osteosarcoma/preprocessing/dataloader/{modality}_figs/V{version}'
+    test_df = pd.read_csv(f'/projects/prjs1779/Osteosarcoma/OS_CNN/src/preprocessing/dataloader/{modality}_df.csv')
+    fig_dir = f'/projects/prjs1779/Osteosarcoma/OS_CNN/src/preprocessing/dataloader/{modality}_figs/V{version}'
     os.makedirs(fig_dir, exist_ok=True)
     
     print("Initializing dataset...")

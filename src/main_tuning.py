@@ -1,7 +1,7 @@
 import os, sys
 # Add the project root to Python path
 # project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-project_root = '/exports/lkeb-hpc/xwan/osteosarcoma/working/OS_CNN/src'
+project_root = '/projects/prjs1779/Osteosarcoma/OS_CNN/src'
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
     
@@ -43,7 +43,7 @@ def parse_arguments():
                        help='Default number for trials in Optuna')
     parser.add_argument('--job_id', type=str, default='0', help='Log file ID')
     parser.add_argument('--split_file', type=str, 
-                       default='/exports/lkeb-hpc/xwan/osteosarcoma/preprocessing/modality/patient_splits.csv',
+                       default='/projects/prjs1779/Osteosarcoma/preprocessing/dataloader/balance_datasplit/patient_splits.csv',
                        help='Path to CSV file with predefined splits')
     
     return parser.parse_args()
@@ -134,8 +134,8 @@ def main():
     
     # Configuration
     config = ExperimentConfig(
-        project_root=Path('/exports/lkeb-hpc/xwan/osteosarcoma'),
-        experiment_path=Path('/exports/lkeb-hpc/xwan/osteosarcoma/experiments'),
+        project_root=Path('/projects/prjs1779/Osteosarcoma'),
+        experiment_path=Path('/projects/prjs1779/Osteosarcoma/experiments'),
         experiment_name='ftune',
         n_outer_folds=20,  # This will be overridden by the split file
         n_inner_folds=5,
