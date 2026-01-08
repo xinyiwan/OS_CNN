@@ -35,7 +35,7 @@ class BestModelCallback:
         # Copy fold checkpoints
         models_copied = 0
         for fold in range(self.n_folds):
-            source_path = ensemble_save_dir / f"{self.prefix}_inner_{fold}_best.pth"
+            source_path = ensemble_save_dir / f"trial_{trial.number}_{self.prefix}_inner_{fold}_best.pth"
             destination_path = best_models_save_dir / f"best_ensemble_fold_{fold}.pth"
             
             if source_path.exists():

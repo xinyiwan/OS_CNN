@@ -49,7 +49,7 @@ def parse_arguments():
     parser.add_argument('--n_fold', type=int, default=0, help='The fold to validate on')
     parser.add_argument('--modality', type=str, default='T1W',
                        help='Modality of input images')
-    parser.add_argument('--version', type=str, default='v0',
+    parser.add_argument('--version', type=str, default='v1',
                        help='Version of segmentation')
     parser.add_argument('--model_type', type=str, default='resnet', 
                        choices=[mt.value for mt in ModelType],
@@ -60,7 +60,7 @@ def parse_arguments():
                        help='Prefix for saving checkpoints')
     parser.add_argument('--random_seed', type=int, default=42, 
                        help='Default random seed for reproducibility')
-    parser.add_argument('--n_trials', type=int, default=30, 
+    parser.add_argument('--n_trials', type=int, default=20, 
                        help='Default number for trials in Optuna')
     parser.add_argument('--job_id', type=str, default='0', help='Log file ID')
     parser.add_argument('--split_file', type=str, 
@@ -156,7 +156,7 @@ def main():
     # Configuration
     config = ExperimentConfig(
         project_root=Path('/projects/prjs1779/Osteosarcoma'),
-        experiment_path=Path('/projects/prjs1779/Osteosarcoma/experiments'),
+        experiment_path=Path('/scratch-shared/xwan1/experiments'),
         experiment_name='ftune',
         n_outer_folds=20,  # This will be overridden by the split file
         n_inner_folds=5,
@@ -207,9 +207,9 @@ def main():
     # Register and get model factory
     model_registry = ModelRegistry()
     model_registry.register_model(ModelType.RESNET, BaseResNetFactory)
-    model_registry.register_model(ModelType.RESNET_SN, ResNetSNFactory)
-    model_registry.register_model(ModelType.RESNET_GP, ResNetGPFactory)
-    model_registry.register_model(ModelType.RESNET_SNGP, ResNetSNGPFactory)
+    # model_registry.register_model(ModelType.RESNET_SN, ResNetSNFactory)
+    # model_registry.register_model(ModelType.RESNET_GP, ResNetGPFactory)
+    # model_registry.register_model(ModelType.RESNET_SNGP, ResNetSNGPFactory)
     
     # Get the factory class for the requested model type
     factory_class = model_registry.get_factory(model_type)

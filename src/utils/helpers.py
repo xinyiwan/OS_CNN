@@ -20,17 +20,17 @@ def setup_experiment_paths(config, args) -> Path:
 
 def suggest_common_hyperparameters(trial: optuna.Trial) -> Dict[str, Any]:
     """Suggest hyperparameters common to all models"""
-    num_aug = trial.suggest_categorical("num_augmentations", [1, 5])
-    batch_size = trial.suggest_categorical("batch_size", [8, 16])
+    num_aug = trial.suggest_categorical("num_augmentations", [1, 3])
+    batch_size = trial.suggest_categorical("batch_size", [1, 4, 8])
     lr_base = trial.suggest_float("lr_base", 1e-5, 1e-2, log=True)
     
-    actual_lr = lr_base * (batch_size / 8) ** 0.5
-    trial.set_user_attr("actual_lr", round(actual_lr, 6))
+    # actual_lr = lr_base * (batch_size / 1) ** 0.5
+    trial.set_user_attr("lr", round(lr_base, 5))
     
     return {
         "num_augmentations": num_aug,
         "batch_size": batch_size,
-        "learning_rate": actual_lr,
+        "learning_rate": lr_base,
     }
 
 def calculate_ensemble_metric(predictions: List, true_labels: List) -> float:

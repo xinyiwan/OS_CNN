@@ -245,7 +245,7 @@ class CrossValidationFramework:
                 test_loader=val_loader,
                 hyperparams=hyperparams,
                 checkpoint_dir=exp_save_path,
-                prefix=f"{prefix}_inner_{inner_fold}"
+                prefix=f"trial_{trial.number}_{prefix}_inner_{inner_fold}"
             )
             
             fold_metrics.append(val_metrics['auroc'])
@@ -258,7 +258,7 @@ class CrossValidationFramework:
                 test_loader=test_loader,
                 hyperparams=hyperparams,
                 checkpoint_dir=exp_save_path,
-                prefix=f"{prefix}_inner_{inner_fold}",
+                prefix=f"trial_{trial.number}_{prefix}_inner_{inner_fold}",
                 return_predictions=True
             )
             

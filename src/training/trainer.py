@@ -25,7 +25,7 @@ def create_training_function(model_type: str,
                              prefix: str,
                              save_checkpoint: bool = True, 
                              checkpoint_dir: str = "./checkpoints", 
-                             patience: int = 10, # for test
+                             patience: int = 5, # for test
                              trial=None) -> Callable:
     """Factory function to create appropriate training function"""
     
@@ -134,7 +134,7 @@ def create_training_function(model_type: str,
                 if save_checkpoint:
                     os.makedirs(checkpoint_dir, exist_ok=True)
                     checkpoint_path_best = os.path.join(
-                        checkpoint_dir, f"{prefix}_best.pth")
+                        checkpoint_dir, f"trial_{trial.number}_{prefix}_best.pth")
                     torch.save({
                         'epoch': epoch,
                         'model_state_dict': model.state_dict(),

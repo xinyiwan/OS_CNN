@@ -5,7 +5,6 @@ project_root = '/projects/prjs1779/Osteosarcoma/OS_CNN/src'
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-
 import optuna
 import torch.nn as nn
 import torch.optim as optim
@@ -13,6 +12,7 @@ from typing import Dict, Any
 from models.model_factory import BaseModelFactory
 from config.model_types import ModelType
 from models.resnet_sngp import ResNet, BasicBlock
+from monai.networks.nets import resnet10
 
 class BaseResNetFactory(BaseModelFactory):
     """Base class for all ResNet variants"""
@@ -21,14 +21,27 @@ class BaseResNetFactory(BaseModelFactory):
         self.model_type = model_type
     
     def suggest_hyperparameters(self, trial: optuna.Trial) -> Dict[str, Any]:
+
         # Common ResNet hyperparameters
+        # remove when using monai resnet
         params = {
-            "width_multiplier": trial.suggest_categorical("width", [2, 5]),
-            "drop_rate": trial.suggest_categorical("drop_rate", [0, 0.3]),
+            # "width_multiplier": trial.suggest_categorical("width", [1, 2]),
+            # "drop_rate": trial.suggest_categorical("drop_rate", [0, 0.3]),
         }
         return params
-    
+
     def create_model(self, hyperparams: Dict[str, Any]) -> nn.Module:
+        
+        return resnet10(
+            spatial_dims=3,
+            n_input_channels=2,
+            pretrained=False,
+            progress=True,
+            num_classes=2,
+            feed_forward=True
+        )        
+    
+    def create_model_wide(self, hyperparams: Dict[str, Any]) -> nn.Module:
         
         N = 16
         n_ = (N - 4) // 6
