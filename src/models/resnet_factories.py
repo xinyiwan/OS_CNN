@@ -13,7 +13,7 @@ from models.model_factory import BaseModelFactory
 from config.model_types import ModelType
 from models.resnet_sngp import ResNet, BasicBlock
 from monai.networks.nets import resnet10
-
+import torch
 class BaseResNetFactory(BaseModelFactory):
     """Base class for all ResNet variants"""
     
@@ -35,7 +35,7 @@ class BaseResNetFactory(BaseModelFactory):
         return resnet10(
             spatial_dims=3,
             n_input_channels=2,
-            pretrained=False,
+            pretrained=hyperparams.get("pertrained", False),
             progress=True,
             num_classes=2,
             feed_forward=True
@@ -57,7 +57,6 @@ class BaseResNetFactory(BaseModelFactory):
             snb=hyperparams.get("sn_bound", None),
             k_s=hyperparams.get("length_scale", None)
         )
-    
     def create_optimizer(self, model: nn.Module, hyperparams: Dict[str, Any]) -> optim.Optimizer:
         lr = hyperparams["learning_rate"]
         
@@ -86,6 +85,96 @@ class ResNetFactory(BaseResNetFactory):
         params = super().suggest_hyperparameters(trial)
         # No additional parameters for base ResNet
         return params
+
+class ResNetPretrainedFactory(BaseResNetFactory):
+    """Pretrained ResNet"""
+    def __init__(self):
+        super().__init__(ModelType.RESNET_PRE_10)
+    
+    def suggest_hyperparameters(self, trial: optuna.Trial) -> Dict[str, Any]:
+        params = super().suggest_hyperparameters(trial)
+        params.update({
+            "pretrained": True,
+            "n_freeze_layers": trial.suggest_categorical("n_freeze_layers", [2, 3, 4]),
+        })
+
+        return params
+
+    def create_model(self, hyperparams: Dict[str, Any]) -> nn.Module:
+        
+        model = resnet10(
+            spatial_dims=3,
+            n_input_channels=1,  # have to be 1
+            num_classes=2,
+            pretrained=True,
+            feed_forward=False,  
+            shortcut_type='B',   
+            bias_downsample=False  
+        )
+
+        def adapt_pretrained_for_2channels(pretrained_model):
+            model = pretrained_model
+            # Get original first conv layer
+            original_conv = model.conv1
+            
+            # Create new conv layer with 2 input channels
+            new_conv = nn.Conv3d(
+                in_channels=2,  # Changed from 1 to 2
+                out_channels=original_conv.out_channels,
+                kernel_size=original_conv.kernel_size,
+                stride=original_conv.stride,
+                padding=original_conv.padding,
+                bias=True if original_conv.bias is not None else False
+            )
+            
+            # Initialize new weights
+            nn.init.kaiming_normal_(new_conv.weight, mode='fan_out', nonlinearity='relu')
+            
+            # **Critical: Copy pretrained weights to first channel, average for second**
+            with torch.no_grad():
+                # For channel 0: Use pretrained weights
+                new_conv.weight[:, 0:1, :, :, :].copy_(original_conv.weight)
+                
+                # For channel 1: Average of pretrained weights or zeros
+                # Option A: Copy same weights (works well in practice)
+                new_conv.weight[:, 1:2, :, :, :].copy_(original_conv.weight)
+                
+                # Option B: Small random initialization
+                # new_conv.weight[:, 1:2, :, :, :].normal_(mean=0.0, std=0.01)
+                
+                # Copy bias if exists
+                if original_conv.bias is not None:
+                    new_conv.bias.copy_(original_conv.bias)
+            
+            # Replace first conv layer
+            model.conv1 = new_conv
+            # add fc layer
+            model.fc = nn.Linear(512, 2)
+            
+            return model
+        
+        # Freezing strategy
+        def freeze_model(model, num_blocks_to_freeze=3):
+            # Freeze initial layers
+            for param in model.conv1.parameters():
+                param.requires_grad = False
+            for param in model.bn1.parameters():
+                param.requires_grad = False
+            
+            # Freeze specified blocks
+            blocks = [model.layer1, model.layer2, model.layer3, model.layer4]
+            for i in range(num_blocks_to_freeze):
+                for param in blocks[i].parameters():
+                    param.requires_grad = False
+            
+            return model
+
+
+        model = adapt_pretrained_for_2channels(model)
+        model = freeze_model(model, num_blocks_to_freeze = hyperparams.get("n_freeze_layers", 3),)
+        return model
+        
+
 
 class ResNetSNFactory(BaseResNetFactory):
     """ResNet with Spectral Normalization"""
