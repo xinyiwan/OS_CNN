@@ -55,6 +55,9 @@ class BestModelCallback:
             f.write(f"Best Trial Number: {trial.number}\n")
             f.write(f"Best Inner mean AUC: {trial.value:.4f}\n")
             f.write(f"Outer Ensemble AUC: {trial.user_attrs['Outer-Ensemble-AUC']:.4f}\n")
+            f.write(f"Outer Ensemble accuracy: {trial.user_attrs['Outer-Ens-accuracy']:.4f}\n")
+            f.write(f"Outer Ensemble sensitivity: {trial.user_attrs['Outer-Ens-sensitivity']:.4f}\n")
+            f.write(f"Outer Ensemble specificity: {trial.user_attrs['Outer-Ens-specificity']:.4f}\n")
             f.write(f"Hyperparameters:\n")
             for key, value in trial.params.items():
                 f.write(f"  {key}: {value}\n")

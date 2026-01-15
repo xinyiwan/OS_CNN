@@ -71,8 +71,8 @@ class CrossValidationFramework:
         test_df = self.create_dataframe_from_lists(test_images, test_segmentations, test_labels)
         
         # Get dataset parameters from hyperparams
-        target_spacing = hyperparams.get("target_spacing", (0.39, 0.39, 4.58))
-        target_size = hyperparams.get("target_size", (384, 384, 22))
+        target_spacing = hyperparams.get("target_spacing", (1.5, 1.5, 3.0))
+        target_size = hyperparams.get("target_size", (192, 192, 64))
         normalize = hyperparams.get("normalize", True)
         crop_strategy = hyperparams.get("crop_strategy", "foreground")
         
@@ -218,12 +218,18 @@ class CrossValidationFramework:
 
             # Create model, optimizer and loss function
             model = model_factory.create_model(hyperparams)
+
+            # Get the number of trainable parameters in the model (using) and use optuna report it
+            num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+            print(f"Number of trainable parameters: {num_params}")
+            trial.set_user_attr("trainable parameters", num_params)
+
             optimizer = model_factory.create_optimizer(model, hyperparams)
             loss_fn = model_factory.create_loss_function()
             model.to(device).float()
             
             # Learning Rate Scheduler
-            scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.9, patience=5)
+            scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.9)
 
             # Train model
             training_function(
