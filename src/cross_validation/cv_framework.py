@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import pandas as pd
 from data.dataset import OsteosarcomaDataset, custom_collate_fn
+from data.pdataset import OsteosarcomaDatasetWithPseudoLabels
 from data.transform import get_augmentation_transforms, get_non_aug_transforms
 from models.model_factory import BaseModelFactory
 import optuna
@@ -77,6 +78,7 @@ class CrossValidationFramework:
         crop_strategy = hyperparams.get("crop_strategy", "foreground")
         
         # Train dataset with augmentation
+        # Change to pseudo-label dataset for test
         train_dataset = OsteosarcomaDataset(
             data_df=train_df,
             image_col='image_path',
@@ -88,7 +90,10 @@ class CrossValidationFramework:
             normalize=normalize,
             crop_strategy=crop_strategy,
             cache_data=True,
-            is_train=True
+            is_train=True,
+            # pseudo only
+            # pseudo_label_type='max_diameter',  # 'volume' or 'max_diameter', 'mean_diameter'
+            # threshold_method='percentile_50',   # 'median' or 'mean', 'percentile_75', 'manual'
         )
         
         # Validation dataset (no augmentation)
@@ -103,7 +108,10 @@ class CrossValidationFramework:
             normalize=normalize,
             crop_strategy=crop_strategy,
             cache_data=True,
-            is_train=False
+            is_train=False,
+            # pseudo only
+            # pseudo_label_type='max_diameter',  # 'volume' or 'max_diameter', 'mean_diameter'
+            # threshold_method='percentile_50',   # 'median' or 'mean', 'percentile_75', 'manual'
         )
         
         # Test dataset (no augmentation)
@@ -118,7 +126,10 @@ class CrossValidationFramework:
             normalize=normalize,
             crop_strategy=crop_strategy,
             cache_data=True,
-            is_train=False
+            is_train=False,
+            # pseudo only
+            # pseudo_label_type='max_diameter',  # 'volume' or 'max_diameter', 'mean_diameter'
+            # threshold_method='percentile_50',   # 'median' or 'mean', 'percentile_75', 'manual'
         )
         
         # Create data loaders with custom collate function
