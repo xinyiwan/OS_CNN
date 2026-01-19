@@ -16,7 +16,7 @@ from optuna.pruners import SuccessiveHalvingPruner
 from config.experiment_config import ExperimentConfig
 from config.model_types import ModelType
 from models.model_factory import ModelRegistry
-from models.resnet_factories import BaseResNetFactory, ResNetFactory, ResNetGPFactory, ResNetSNFactory, ResNetSNGPFactory 
+from models.resnet_factories import BaseResNetFactory, ResNetPretrainedFactory, ResNetFactory, ResNetGPFactory, ResNetSNFactory, ResNetSNGPFactory 
 from cross_validation.cv_framework import CrossValidationFramework
 from training.trainer import create_training_function, create_testing_function
 from utils.callbacks import BestModelCallback
@@ -51,9 +51,11 @@ def parse_arguments():
                        help='Modality of input images')
     parser.add_argument('--version', type=str, default='v1',
                        help='Version of segmentation')
-    parser.add_argument('--model_type', type=str, default='resnet', 
+    parser.add_argument('--model_type', type=str, default='resnet10_pretrained', 
                        choices=[mt.value for mt in ModelType],
                        help='Type of model to use')
+    parser.add_argument('--experiment_name', type=str, default='ftune', 
+                       help='Name of the experiment')
     parser.add_argument('--use_Checkpoint', action='store_true', default=True, 
                        help='Use Checkpointing')
     parser.add_argument('--prefix', type=str, default='fitunetest', 
@@ -157,7 +159,7 @@ def main():
     config = ExperimentConfig(
         project_root=Path('/projects/prjs1779/Osteosarcoma'),
         experiment_path=Path('/scratch-shared/xwan1/experiments'),
-        experiment_name='ftune',
+        experiment_name=args.experiment_name,
         n_outer_folds=20,  # This will be overridden by the split file
         n_inner_folds=5,
         num_trials=args.n_trials,
@@ -207,6 +209,7 @@ def main():
     # Register and get model factory
     model_registry = ModelRegistry()
     model_registry.register_model(ModelType.RESNET, BaseResNetFactory)
+    model_registry.register_model(ModelType.RESNET_PRE_10, ResNetPretrainedFactory)
     # model_registry.register_model(ModelType.RESNET_SN, ResNetSNFactory)
     # model_registry.register_model(ModelType.RESNET_GP, ResNetGPFactory)
     # model_registry.register_model(ModelType.RESNET_SNGP, ResNetSNGPFactory)
@@ -216,7 +219,7 @@ def main():
     print('Factory class:', factory_class)
     
     # Create an instance of the factory
-    model_factory = factory_class(model_type)  #
+    model_factory = factory_class()  #
     print('Model factory instance created:', model_factory)
     
     # Create CV framework
@@ -300,12 +303,15 @@ def main():
             ensemble_metric = calculate_ensemble_metric(test_predictions, test_labels)
             # calculate report it 
             trial.set_user_attr("Outer-Ensemble-AUC", round(ensemble_metric['auroc'],4))
+            trial.set_user_attr("Outer-Ens-accuracy", round(ensemble_metric['accuracy'],4))
+            trial.set_user_attr("Outer-Ens-sensitivity", round(ensemble_metric['sensitivity'],4))
+            trial.set_user_attr("Outer-Ens-specificity", round(ensemble_metric['specificity'],4))
 
             # Report the result for choosing the best parameters 
             trial.set_user_attr("Inner-Ensemble-AUC", round(mean_inner_metric,4))
             
-            if mean_inner_metric < 0.59:  # Pruning condition
-                raise optuna.TrialPruned()
+            # if mean_inner_metric < 0.59:  # Pruning condition
+            #     raise optuna.TrialPruned()
         
         # Ensure we return a value, not None
         return mean_inner_metric
