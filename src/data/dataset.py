@@ -1,6 +1,6 @@
 import os, sys
 # Add the project root to Python path
-project_root = '/exports/lkeb-hpc/xwan/osteosarcoma/working/OS_CNN/src'
+project_root = '/projects/prjs1779/Osteosarcoma/OS_CNN/src'
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 import torch
@@ -79,6 +79,7 @@ class OsteosarcomaDataset(Dataset):
         segmentation_path = self.data_df.loc[original_idx, self.segmentation_col]
         subject_id = self.data_df.loc[original_idx, 'pid_n'] if 'pid_n' in self.data_df.columns else f"subject_{idx}"
         
+        
         # Load and preprocess base data (without augmentation)
         if original_idx in self.preprocessed_cache:
             image, segmentation, metadata = self.preprocessed_cache[original_idx]
@@ -99,7 +100,7 @@ class OsteosarcomaDataset(Dataset):
             )
         elif self.transform is not None and not self.is_train:
             # No augmentation or validation mode
-            seed = 42 # but the seed won't be used
+            seed = 42 # but the seed won't be use
             augmented_image, augmented_segmentation = self._apply_transform_with_seed(
                 image, segmentation, seed
             )
@@ -498,13 +499,21 @@ def custom_collate_fn(batch):
     
     return combined_inputs_batch, labels_batch, metadata
 
-def quick_test(modality, version):
+def quick_test(modality, version, strategy):
     """Quick test to check if data loading works"""
     import pandas as pd
     import os
     
-    test_df = pd.read_csv(f'/projects/prjs1779/Osteosarcoma/OS_CNN/src/preprocessing/dataloader/{modality}_df.csv')
-    fig_dir = f'/projects/prjs1779/Osteosarcoma/OS_CNN/src/preprocessing/dataloader/{modality}_figs/V{version}'
+    test_df = pd.read_csv(f'/projects/prjs1779/Osteosarcoma/preprocessing/{modality}_df.csv')
+
+    path_columns = ['image_path', 'seg_v0_path', 'seg_v1_path', 'seg_v9_path'] 
+    for col in path_columns:
+        if col in test_df.columns:
+            test_df[col] = test_df[col].str.replace('/exports/lkeb-hpc-data/XnatOsteosarcoma/', '/projects/prjs1779/')
+            test_df[col] = test_df[col].str.replace('/exports/lkeb-hpc/xwan/osteosarcoma/', '/projects/prjs1779/os_data_tmp/os_data_tmp/')
+    
+    
+    fig_dir = f'/projects/prjs1779/Osteosarcoma/preprocessing/dataloader/preprocess/{strategy}/{modality}_figs/V{version}'
     os.makedirs(fig_dir, exist_ok=True)
     
     print("Initializing dataset...")
@@ -513,8 +522,8 @@ def quick_test(modality, version):
         image_col='image_path',
         segmentation_col=f'seg_v{version}_path',
         transform=get_augmentation_transforms(),
-        target_spacing=(0.39, 0.39, 4.58),
-        target_size=(384, 384, 22),
+        target_spacing=(1.5, 1.5, 3.0),
+        target_size=(192, 192, 64),
         normalize=True,
         crop_strategy='foreground'
     )
@@ -533,13 +542,13 @@ def quick_test(modality, version):
     print("Loading first batch...")
     
     # Simple version for quick testing
-    def quick_overlay(image, seg, title, save_path):
+    def quick_overlay(image, seg, title, save_path, strategy):
 
         # create folders if not exist
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         
         """Simple overlay with 3 slices"""
-        slices = [12, 15, 18]  # Example slice indices
+        slices = [30, 32, 34]  # Example slice indices
         
         fig, axes = plt.subplots(3, 3, figsize=(15, 15))
         fig.suptitle(title, fontsize=14)
@@ -586,7 +595,8 @@ def quick_test(modality, version):
             quick_overlay(
                 image, seg,
                 f'Sample {i} - {subject_id}',
-                f'/exports/lkeb-hpc/xwan/osteosarcoma/preprocessing/dataloader/{modality}_figs_2/V{version}/{i}_{subject_id}.png'
+                f'/projects/prjs1779/Osteosarcoma/preprocessing/dataloader/preprocess/{strategy}/{modality}_figs/V{version}/{i}_{subject_id}.png',
+                strategy
             )
             i += 1
 
@@ -595,11 +605,10 @@ if __name__ == "__main__":
 
     args = ArgumentParser()
     args.add_argument('--modality', type=str, default='T1W', help='Modality to test')
-    args.add_argument('--version', type=int, default=0, help='Segmentation version to test')
+    args.add_argument('--version', type=int, default=1, help='Segmentation version to test')
     parsed_args = args.parse_args() 
     
-    quick_test(modality=parsed_args.modality, version=parsed_args.version)
-
-    # quick_test(modality='T1W_FS_C', version=0)
-    # quick_test(modality='T2W_FS', version=0)
+    quick_test(modality='T1W_FS_C', version=1, strategy='anisotropy1-4')
+    # quick_test(modality='T1W_FS_C', version=1)
+    # quick_test(modality='T2W_FS', version=1)
 
