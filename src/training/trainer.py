@@ -25,7 +25,7 @@ def create_training_function(model_type: str,
                              prefix: str,
                              save_checkpoint: bool = True, 
                              checkpoint_dir: str = "./checkpoints", 
-                             patience: int = 5, # for test
+                             patience: int = 10, # for test
                              trial=None) -> Callable:
     """Factory function to create appropriate training function"""
     
