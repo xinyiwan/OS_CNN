@@ -284,7 +284,6 @@ def main():
                 [labels[i] for i in test_indices],
                 [subjects[i] for i in test_indices]  # Add subjects
             )
-            
             # Run inner CV
             mean_inner_metric, test_predictions, test_labels = cv_framework.run_inner_cv(
                 model_factory=model_factory,  # Pass the instance, not the class
