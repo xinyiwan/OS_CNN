@@ -47,13 +47,13 @@ def calculate_ensemble_metric(predictions: List, true_labels: List) -> float:
     #     return sk.roc_auc_score(true_labels, mean_preds)
     return metrics
 
-def load_checkpoint(model, optimizer=None, checkpoint_dir='.', prefix='best_model_gp'):
+def load_checkpoint(model, device, optimizer=None, checkpoint_dir='.', prefix='best_model_gp'):
     
     checkpoint_path = os.path.join(checkpoint_dir, f"{prefix}_best.pth") 
     if os.path.isfile(checkpoint_path):
         print(f"Loading saved model from {checkpoint_path}")
-        checkpoint = torch.load(checkpoint_path, map_location=torch.device('cpu')) # for test
-        model.load_state_dict(checkpoint['model_state_dict'])
+        checkpoint = torch.load(checkpoint_path, map_location=device) # for test
+        model.load_state_dict(checkpoint['ema_model_state_dict'])
         if optimizer:
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         print(f"Model loaded successfully from epoch {checkpoint['epoch']+1}")

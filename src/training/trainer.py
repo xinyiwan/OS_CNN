@@ -20,34 +20,36 @@ from models.resnet_sngp import mean_field_logits
 from utils.metrics import compute_classification_metrics, compute_expected_calibration_error
 import time
 from datetime import timedelta
+from training.EMA import EMA
 
 def create_training_function(model_type: str, 
                              prefix: str,
                              save_checkpoint: bool = True, 
                              checkpoint_dir: str = "./checkpoints", 
-                             patience: int = 10, # for test
-                             trial=None) -> Callable:
-    """Factory function to create appropriate training function"""
+                             patience: int = 10,
+                             trial=None,
+                             ema_decay: float = 0.999) -> Callable:  # Added ema_decay parameter
     
     def base_trainer(model: nn.Module,
                     device: torch.device,
                     train_loader: torch.utils.data.DataLoader,
                     val_loader: torch.utils.data.DataLoader,
                     optimizer: torch.optim.Optimizer,
-                    loss_function: nn.Module,  # Fixed parameter name
+                    loss_function: nn.Module,
                     epochs: int, 
-                    scheduler: torch.optim.lr_scheduler._LRScheduler,  # Added scheduler
+                    scheduler: torch.optim.lr_scheduler._LRScheduler,
                     model_type: str = model_type,
                     prefix: str = f'{prefix}_trial_{trial.number}',
                     **kwargs) -> None:
         
-        # Use the provided loss function
-        loss_fn = loss_function  # Fixed: use the parameter instead of undefined loss_fn
+        loss_fn = loss_function
         
         model.train()
         model = model.to(device).float()
+        
+        # Use optimized EMA (no deepcopy overhead)
+        ema_model = EMA(model, decay=ema_decay, device=device)
 
-        # GradScaler
         scaler = GradScaler(device='cuda')
 
         train_loss_history = []
@@ -65,20 +67,23 @@ def create_training_function(model_type: str,
             model.train()
             epoch_train_loss = 0
 
-            for batch_data, batch_labels, _ in train_loader:
-                batch_data  = batch_data.to(device).float()
+            for batch_idx, (batch_data, batch_labels, _) in enumerate(train_loader):
+                batch_data = batch_data.to(device).float()
                 batch_labels = batch_labels.to(device)
                 optimizer.zero_grad()
 
-                # Forward pass with mixed precision
+                # Train the base model with mixed precision
                 with autocast(device_type='cuda'):
                     outputs = model(batch_data)
-                    loss = loss_fn(outputs, batch_labels)  # Now using defined loss_fn
+                    loss = loss_fn(outputs, batch_labels)
 
-                # Backward pass and optimization step
+                # Backward pass and optimization
                 scaler.scale(loss).backward()
                 scaler.step(optimizer)
-                scaler.update()
+                scaler.update()  # This updates the GradScaler state
+                
+                # Update EMA model
+                ema_model.update(model)
 
                 epoch_train_loss += loss.item()
             
@@ -86,7 +91,8 @@ def create_training_function(model_type: str,
             train_loss_history.append(train_loss)
             print(f"Train loss: {train_loss_history[-1]:.4f}")
 
-            # Validation phase
+            # Temporarily apply EMA parameters to model for validation
+            ema_model.set_to_model(model)
             model.eval()
             epoch_val_loss = 0
             val_all_preds = []
@@ -94,15 +100,12 @@ def create_training_function(model_type: str,
 
             with torch.no_grad():
                 for val_data, val_labels, _ in val_loader:
-                    # Ensure data is float32 and on device
-                    val_data = val_data.to(device, dtype=torch.float32)  # Explicit float32
+                    val_data = val_data.to(device, dtype=torch.float32)
                     val_labels = val_labels.to(device)
-
-                    optimizer.zero_grad()
 
                     with autocast(device_type='cuda'):
                         val_outputs = model(val_data)
-                        epoch_val_loss += loss_fn(val_outputs, val_labels).item()  # Fixed here too
+                        epoch_val_loss += loss_fn(val_outputs, val_labels).item()
                     
                     _preds = F.softmax(val_outputs, dim=-1)
                     val_all_preds.extend(_preds[:, 1].tolist())
@@ -128,7 +131,7 @@ def create_training_function(model_type: str,
             # Check for early stopping
             if (val_loss < best_val_loss) or (epoch == 0):
                 best_val_loss = val_loss
-                print(f"New best validation loss :{best_val_loss:.4f}")
+                print(f"New best validation loss: {best_val_loss:.4f}")
                 best_epoch = epoch
                 patience_count = 0
                 if save_checkpoint:
@@ -137,7 +140,8 @@ def create_training_function(model_type: str,
                         checkpoint_dir, f"trial_{trial.number}_{prefix}_best.pth")
                     torch.save({
                         'epoch': epoch,
-                        'model_state_dict': model.state_dict(),
+                        'model_state_dict': model.state_dict(),  # Base model
+                        'ema_model_state_dict': ema_model.get_state_dict(),  # EMA model
                         'optimizer_state_dict': optimizer.state_dict(),
                         'train_loss': train_loss,
                         'val_loss': val_loss,
@@ -151,7 +155,7 @@ def create_training_function(model_type: str,
                 print(f"Early stopping triggered at epoch {epoch+1}. Best epoch: {best_epoch+1}, Best validation loss: {best_val_loss:.4f}")
                 break
 
-            # Plot loss (you'll need to define plot_loss function)
+            # Plot loss
             loss_save_dir = os.path.join(checkpoint_dir, 'loss')
             os.makedirs(loss_save_dir, exist_ok=True)
             title = f"trial_{trial.number}_{prefix}" if trial is not None else prefix
@@ -160,6 +164,10 @@ def create_training_function(model_type: str,
             print(f"Epoch {epoch+1} completed in {epoch_time:.2f} seconds")
             
         print("Training finished")
+        
+        # Return model with EMA weights applied
+        ema_model.set_to_model(model)
+        return model
 
     return base_trainer
 
@@ -192,7 +200,7 @@ def create_testing_function(model_type: str,
         Returns: (probabilities, labels)
         """
 
-        model = load_checkpoint(model, None, checkpoint_dir=checkpoint_dir, prefix=prefix)
+        model = load_checkpoint(model, device, None, checkpoint_dir=checkpoint_dir, prefix=prefix)
         
         model.eval()
         model.to(device).float()
