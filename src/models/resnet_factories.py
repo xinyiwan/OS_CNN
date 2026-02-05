@@ -71,7 +71,8 @@ class BaseResNetFactory(BaseModelFactory):
                 {'params': other_params, 'weight_decay': 0}
             ], lr=lr)
         else:
-            return optim.Adam(model.parameters(), lr=lr)
+            return optim.Adam(model.fc.parameters(), 
+                              lr=lr)
     
     def create_loss_function(self):
         return nn.CrossEntropyLoss()
@@ -95,7 +96,7 @@ class ResNetPretrainedFactory(BaseResNetFactory):
         params = super().suggest_hyperparameters(trial)
         params.update({
             "pretrained": True,
-            "n_freeze_layers": trial.suggest_categorical("n_freeze_layers", [2, 3, 4]),
+            "n_freeze_layers": trial.suggest_categorical("n_freeze_layers", [4]),
         })
 
         return params
@@ -149,13 +150,19 @@ class ResNetPretrainedFactory(BaseResNetFactory):
             # Replace first conv layer
             model.conv1 = new_conv
             # add fc layer
-            model.fc = nn.Linear(512, 2)
+            model.fc = nn.Sequential(
+                nn.Dropout(0.3),           # Strong regularization
+                nn.Linear(512, 64),        # Small intermediate layer
+                nn.ReLU(),
+                nn.Dropout(0.3),
+                nn.Linear(64, 2)
+            )
             
             return model
         
         # Freezing strategy
         def freeze_model(model, num_blocks_to_freeze=3):
-            # Freeze initial layers
+            # freeze the initial layers
             for param in model.conv1.parameters():
                 param.requires_grad = False
             for param in model.bn1.parameters():
@@ -171,7 +178,7 @@ class ResNetPretrainedFactory(BaseResNetFactory):
 
 
         model = adapt_pretrained_for_2channels(model)
-        model = freeze_model(model, num_blocks_to_freeze = hyperparams.get("n_freeze_layers", 3),)
+        model = freeze_model(model, num_blocks_to_freeze = hyperparams.get("n_freeze_layers", 4),)
         return model
         
 
