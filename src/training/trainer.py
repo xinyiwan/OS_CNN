@@ -21,12 +21,33 @@ from utils.metrics import compute_classification_metrics, compute_expected_calib
 import time
 from datetime import timedelta
 from training.EMA import EMA
+import gc
+
+
+def print_memory_stats(label=""):
+    torch.cuda.synchronize()
+    allocated = torch.cuda.memory_allocated() / 1e9
+    reserved = torch.cuda.memory_reserved() / 1e9
+    max_allocated = torch.cuda.max_memory_allocated() / 1e9
+    
+    print(f"\n{'='*50}")
+    print(f"{label}")
+    print(f"{'='*50}")
+    print(f"Allocated: {allocated:.2f} GB")
+    print(f"Reserved: {reserved:.2f} GB")
+    print(f"Max allocated: {max_allocated:.2f} GB")
+    print(f"Free: {torch.cuda.get_device_properties(0).total_memory/1e9 - allocated:.2f} GB")
+    
+    # Force garbage collection
+    gc.collect()
+    torch.cuda.empty_cache()
+
 
 def create_training_function(model_type: str, 
                              prefix: str,
                              save_checkpoint: bool = True, 
                              checkpoint_dir: str = "./checkpoints", 
-                             patience: int = 10,
+                             patience: int = 5, # for test 3
                              trial=None,
                              ema_decay: float = 0.999) -> Callable:  # Added ema_decay parameter
     
@@ -57,25 +78,35 @@ def create_training_function(model_type: str,
         best_val_loss = float('inf')  
         best_epoch = 0
         patience_count = 0
-
+        
         for epoch in range(epochs):
             epoch_start = time.time()
             if 'gp' in model_type and epoch > 0:
                 model.classifier.reset_covariance_matrix()
 
             print(f"Epoch {epoch+1}/{epochs}")
+            
+            # Training phase
             model.train()
             epoch_train_loss = 0
 
-            for batch_idx, (batch_data, batch_labels, _) in enumerate(train_loader):
+            for batch_idx, (batch_data, batch_labels, batch_meta) in enumerate(train_loader):
                 batch_data = batch_data.to(device).float()
                 batch_labels = batch_labels.to(device)
+
                 optimizer.zero_grad()
 
                 # Train the base model with mixed precision
                 with autocast(device_type='cuda'):
                     outputs = model(batch_data)
-                    loss = loss_fn(outputs, batch_labels)
+                    _preds = F.softmax(outputs, dim=-1)
+                    # test
+                    print(f'batch_outputs prob:{_preds}')
+                    print(f'batch_outputs prob shaoe :{_preds.shape}')
+                    print(f'batch_labels:{batch_labels}')
+                    loss = loss_fn(_preds, batch_labels)
+                    print(f'loss:{loss.item()}')
+
 
                 # Backward pass and optimization
                 scaler.scale(loss).backward()
@@ -91,13 +122,18 @@ def create_training_function(model_type: str,
             train_loss_history.append(train_loss)
             print(f"Train loss: {train_loss_history[-1]:.4f}")
 
-            # Temporarily apply EMA parameters to model for validation
+            # --- VALIDATION PHASE ---
+            # Save base model state BEFORE applying EMA
+            base_model_state = {k: v.clone().cpu() for k, v in model.state_dict().items()}
+
+            # Apply EMA parameters to model for validation
             ema_model.set_to_model(model)
             model.eval()
-            epoch_val_loss = 0
-            val_all_preds = []
-            val_all_labels = []
-
+            epoch_val_losses = 0
+            all_val_preds = []
+            all_val_labels = []
+            
+            torch.cuda.empty_cache()
             with torch.no_grad():
                 for val_data, val_labels, _ in val_loader:
                     val_data = val_data.to(device, dtype=torch.float32)
@@ -105,69 +141,93 @@ def create_training_function(model_type: str,
 
                     with autocast(device_type='cuda'):
                         val_outputs = model(val_data)
-                        epoch_val_loss += loss_fn(val_outputs, val_labels).item()
+                        val_preds = F.softmax(val_outputs, dim=-1)
+                        epoch_val_losses += loss_fn(val_preds, val_labels).item()
                     
-                    _preds = F.softmax(val_outputs, dim=-1)
-                    val_all_preds.extend(_preds[:, 1].tolist())
-                    val_all_labels.extend(val_labels.tolist())
-
-            val_loss = epoch_val_loss / len(val_loader)
-            val_loss_history.append(val_loss)
-            scheduler.step(val_loss)
-            print(f"Val loss: {val_loss:.4f}")
-
-            val_all_preds = np.array(val_all_preds)
-            val_all_labels = np.array(val_all_labels)
-            mask = ~np.isnan(val_all_preds)
-            val_f_preds, val_f_labels = val_all_preds[mask], val_all_labels[mask]
-
-            if len(val_f_preds) <= 1 or np.unique(val_f_labels).size < 2:
+                    # _preds = F.softmax(val_outputs, dim=-1)
+                    all_val_preds.extend(val_preds[:, 1].tolist())
+                    all_val_labels.extend(val_labels.tolist())
+                    print(f'val_batch_outputs:{val_preds[:, 1].tolist()}')
+                    print(f'val_batch_labels:{val_labels.tolist()}')
+            
+            val_losses = epoch_val_losses / len(val_loader)
+            val_loss_history.append(val_losses)
+            print(f"Model Val loss: {val_losses:.4f}")
+            
+            # RESTORE base model weights immediately after EMA validation
+            model.load_state_dict(base_model_state)
+            
+            # Calculate AUC for model
+            preds_array = np.array(all_val_preds)
+            labels_array = np.array(all_val_labels)
+            mask = ~np.isnan(preds_array)
+            filtered_preds, filtered_labels = preds_array[mask], labels_array[mask]
+            
+            if len(filtered_preds) <= 1 or np.unique(filtered_labels).size < 2:
                 val_auc = 0.0
             else:
-                val_auc = sk.roc_auc_score(val_f_labels, val_f_preds)
+                val_auc = sk.roc_auc_score(filtered_labels, filtered_preds)
+            
+            print(f"Validation AUC: {val_auc:.4f}")
 
-            print(f"Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}, Validation AUC: {val_auc:.4f}")
-
-            # Check for early stopping
-            if (val_loss < best_val_loss) or (epoch == 0):
-                best_val_loss = val_loss
-                print(f"New best validation loss: {best_val_loss:.4f}")
+            
+            # Update scheduler based on EMA validation loss
+            scheduler.step(val_losses)
+            
+            # --- CHECKPOINT SAVING ---
+            # Track best EMA model 
+            if val_losses < best_val_loss:
+                best_val_loss = val_losses
                 best_epoch = epoch
                 patience_count = 0
-                if save_checkpoint:
-                    os.makedirs(checkpoint_dir, exist_ok=True)
-                    checkpoint_path_best = os.path.join(
+                
+                if save_checkpoint:                   
+                    # Also optionally save just the base model if it's also the best
+                    checkpoint_path_base = os.path.join(
                         checkpoint_dir, f"trial_{trial.number}_{prefix}_best.pth")
+                    # Get EMA state dict
+                    ema_state_dict = ema_model.get_state_dict()
+
+                    # Save single checkpoint with both base and EMA weights
                     torch.save({
                         'epoch': epoch,
-                        'model_state_dict': model.state_dict(),  # Base model
-                        'ema_model_state_dict': ema_model.get_state_dict(),  # EMA model
+                        'model_state_dict': base_model_state,        # Base model weights
+                        'ema_model_state_dict': ema_state_dict,      # EMA weights
                         'optimizer_state_dict': optimizer.state_dict(),
+                        'scheduler_state_dict': scheduler.state_dict(),
+                        'scaler_state_dict': scaler.state_dict(),
                         'train_loss': train_loss,
-                        'val_loss': val_loss,
-                    }, checkpoint_path_best)
-                    print(f"Best Checkpoint saved at {checkpoint_path_best}")
+                        'val_loss': val_losses,
+                        'val_auc': val_auc,
+                    }, checkpoint_path_base)
+                    print(f"Best Checkpoint (based on EMA) saved at {checkpoint_path_base}")
             else:
-                patience_count += 1
-                print(f"Patience count: {patience_count}/{patience}")
+                # Only start counting patience after epoch 10
+                if epoch >= 1: # for test
+                    patience_count += 1
+                    print(f"Patience count: {patience_count}/{patience}")
             
-            if patience_count >= patience:
+            # Early stopping check based on EMA performance
+            if epoch >= 80 and patience_count >= patience:
                 print(f"Early stopping triggered at epoch {epoch+1}. Best epoch: {best_epoch+1}, Best validation loss: {best_val_loss:.4f}")
                 break
-
+            
             # Plot loss
             loss_save_dir = os.path.join(checkpoint_dir, 'loss')
             os.makedirs(loss_save_dir, exist_ok=True)
             title = f"trial_{trial.number}_{prefix}" if trial is not None else prefix
-            plot_loss(train_loss_history, val_loss_history, prefix=f'trial_{trial.number}_{prefix}', save_path=loss_save_dir, title=title)
+            plot_loss(train_loss_history, val_loss_history, prefix=f'trial_{trial.number}_{prefix}', 
+                    save_path=loss_save_dir, title=title)
+            
             epoch_time = time.time() - epoch_start
             print(f"Epoch {epoch+1} completed in {epoch_time:.2f} seconds")
-            
+
         print("Training finished")
-        
-        # Return model with EMA weights applied
+
+        # Final step: Apply EMA weights to model for final inference
         ema_model.set_to_model(model)
-        return model
+        return model  # Now with EMA weights applied
+        
 
     return base_trainer
 
