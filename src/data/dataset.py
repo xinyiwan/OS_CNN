@@ -107,16 +107,19 @@ class OsteosarcomaDataset(Dataset):
         else:
             augmented_image, augmented_segmentation = image, segmentation
         
-        # Convert to tensors
 
         # Concatenate along channel dimension
-        combined_input = torch.cat([augmented_image, augmented_segmentation], dim=0)  # Shape: [2, H, W]
+        image_tensor = augmented_image.as_tensor().float()  # float32
+        seg_tensor = augmented_segmentation.as_tensor().float()   # float32
+        combined = torch.cat([image_tensor, seg_tensor], dim=0)  # (2, H, W, D)
         
         # Get label from metadata - FIXED HERE
         label = metadata['label']
         if label is None:
-            # Fallback: try to get label from dataframe directly
-            label = self.data_df.loc[original_idx, 'label'] if 'label' in self.data_df.columns else 0
+            # give alarm if no label found
+            logger.warning(f"No label found for sample index {original_idx} (subject_id: {subject_id})")
+            # terminate program
+            sys.exit(1)
         
         label_tensor = torch.tensor(label, dtype=torch.long)
 
@@ -125,7 +128,7 @@ class OsteosarcomaDataset(Dataset):
         metadata['original_sample_idx'] = original_idx
         metadata['total_augmentations'] = self.num_augmentations
         
-        return combined_input, label_tensor, metadata
+        return combined, label_tensor, metadata
 
     def _apply_transform_with_seed(self, image: np.ndarray, segmentation: np.ndarray, seed: int) -> Tuple[np.ndarray, np.ndarray]:
         """Apply transform with specific random seed for reproducibility"""
@@ -192,7 +195,8 @@ class OsteosarcomaDataset(Dataset):
         )
         
         # Combine metadata
-        metadata = {**original_metadata, **processing_metadata}
+        metadata = original_metadata
+        # metadata = {**original_metadata, **processing_metadata}
         
         return image_processed, segmentation_processed, metadata
 
@@ -245,10 +249,10 @@ class OsteosarcomaDataset(Dataset):
             segmentation_swapped, spacing_swapped, self.target_spacing, is_seg=True
         )
         
-        processing_metadata['resample_factors'] = {
-            'image': resample_factor_img,
-            'segmentation': resample_factor_seg
-        }
+        # processing_metadata['resample_factors'] = {
+        #     'image': resample_factor_img,
+        #     'segmentation': resample_factor_seg
+        # }
         processing_metadata['shape_after_resample'] = image_resampled.shape
         
         # Step 3: Crop/Pad to target size
@@ -259,10 +263,10 @@ class OsteosarcomaDataset(Dataset):
             segmentation_resampled, segmentation_resampled
         )
         
-        processing_metadata['crop_pad_info'] = {
-            'image': crop_pad_info_img,
-            'segmentation': crop_pad_info_seg
-        }
+        # processing_metadata['crop_pad_info'] = {
+        #     'image': crop_pad_info_img,
+        #     'segmentation': crop_pad_info_seg
+        # }
         
         # Step 4: Normalize intensity
         if self.normalize:
@@ -270,7 +274,7 @@ class OsteosarcomaDataset(Dataset):
             processing_metadata['normalization_info'] = norm_info
         
         processing_metadata['final_shape'] = image_final.shape
-        processing_metadata['final_spacing'] = spacing_swapped * resample_factor_img
+        # processing_metadata['final_spacing'] = spacing_swapped * resample_factor_img
         
         return image_final, segmentation_final, processing_metadata
 
@@ -505,7 +509,7 @@ def quick_test(modality, version, strategy):
     import os
     
     test_df = pd.read_csv(f'/projects/prjs1779/Osteosarcoma/preprocessing/{modality}_df.csv')
-
+    test_df['label'] = test_df['Huvos']  # Use Huvos as label
     path_columns = ['image_path', 'seg_v0_path', 'seg_v1_path', 'seg_v9_path'] 
     for col in path_columns:
         if col in test_df.columns:
@@ -522,25 +526,32 @@ def quick_test(modality, version, strategy):
         image_col='image_path',
         segmentation_col=f'seg_v{version}_path',
         transform=get_augmentation_transforms(),
-        target_spacing=(1.5, 1.5, 3.0),
-        target_size=(192, 192, 64),
+        target_spacing=(1.0, 1.0, 2.0),
+        target_size=(288, 288, 64),
         normalize=True,
         crop_strategy='foreground'
     )
-    
     print("Creating data loader...")
     loader = DataLoader(
         dataset, 
-        batch_size=1, 
+        batch_size=8, 
         shuffle=False, 
         num_workers=1,
-        collate_fn=custom_collate_fn  # Add this line
+        collate_fn=None  # Add this line
     )
 
     print(f"Modality: {modality}; Version: {version}; Lenth: {dataset.__len__()}")
     
-    print("Loading first batch...")
+    batch, labels, metas = next(iter(loader))
+
+    print(f"Batch shape: {batch.shape}")
+    print(f"Batch dtype: {batch.dtype}")
     
+    batch_expected_gb = 32 * 2 * 288 * 288 * 64 * 4 / 1e9
+    batch_actual_gb = batch.element_size() * batch.nelement() / 1e9
+    print(f"Expected batch memory (float32): {batch_expected_gb:.2f} GB")
+    print(f"Actual batch memory: {batch_actual_gb:.2f} GB")
+
     # Simple version for quick testing
     def quick_overlay(image, seg, title, save_path, strategy):
 
@@ -577,28 +588,29 @@ def quick_test(modality, version, strategy):
         plt.savefig(save_path, dpi=120, bbox_inches='tight')
         plt.close()
 
-    # Usage in your existing loop:
-    i = 0
-    for batch_data, labels, metadata in loader:
-        # batch_data shape: [batch_size, 2, H, W]
-        # Where channel 0 = image, channel 1 = segmentation
+    # # Usage in your existing loop:
+    # print("Loading first batch...")
+    # i = 0
+    # for batch_data, labels, metadata in loader:
+    #     # batch_data shape: [batch_size, 2, H, W]
+    #     # Where channel 0 = image, channel 1 = segmentation
         
-        batch_size = batch_data.shape[0]
+    #     batch_size = batch_data.shape[0]
         
-        for batch_idx in range(batch_size):
-            # Extract image and segmentation for this sample
-            image = batch_data[batch_idx, 0].numpy()  # Shape: [H, W]
-            seg = batch_data[batch_idx, 1].numpy()    # Shape: [H, W]
+    #     for batch_idx in range(batch_size):
+    #         # Extract image and segmentation for this sample
+    #         image = batch_data[batch_idx, 0].numpy()  # Shape: [H, W]
+    #         seg = batch_data[batch_idx, 1].numpy()    # Shape: [H, W]
             
-            subject_id = metadata[batch_idx].get('subject_id', f'unknown')
-            print(f"Sample {i} - Subject ID: {subject_id}, Image shape: {image.shape}, Seg shape: {seg.shape}")
-            quick_overlay(
-                image, seg,
-                f'Sample {i} - {subject_id}',
-                f'/projects/prjs1779/Osteosarcoma/preprocessing/dataloader/preprocess/{strategy}/{modality}_figs/V{version}/{i}_{subject_id}.png',
-                strategy
-            )
-            i += 1
+    #         subject_id = metadata[batch_idx].get('subject_id', f'unknown')
+    #         print(f"Sample {i} - Subject ID: {subject_id}, Image shape: {image.shape}, Seg shape: {seg.shape}")
+    #         quick_overlay(
+    #             image, seg,
+    #             f'Sample {i} - {subject_id}',
+    #             f'/projects/prjs1779/Osteosarcoma/preprocessing/dataloader/preprocess/{strategy}/{modality}_figs/V{version}/{i}_{subject_id}.png',
+    #             strategy
+    #         )
+    #         i += 1
 
 
 if __name__ == "__main__":
@@ -608,7 +620,7 @@ if __name__ == "__main__":
     args.add_argument('--version', type=int, default=1, help='Segmentation version to test')
     parsed_args = args.parse_args() 
     
-    quick_test(modality='T1W_FS_C', version=1, strategy='anisotropy1-4')
+    quick_test(modality='T1W_FS_C', version=1, strategy='more_aug')
     # quick_test(modality='T1W_FS_C', version=1)
     # quick_test(modality='T2W_FS', version=1)
 

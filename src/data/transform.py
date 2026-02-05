@@ -11,7 +11,7 @@ from monai.transforms import (
     ScaleIntensityd,
     ResizeD,
     RandFlipd,
-    RandRotated,
+    RandRotate90d,
     RandAdjustContrastd,
     RandShiftIntensityd,
     RandGaussianNoised,
@@ -25,14 +25,13 @@ import cv2
 def get_augmentation_transforms():
     return Compose([
         EnsureChannelFirstd(keys=["image", "segmentation"], channel_dim="no_channel", allow_missing_keys=True),
-        # RandAdjustContrastd(keys=["image"], prob=0.5, gamma=(0.7, 1.5)),
-        # RandShiftIntensityd(keys=["image"], prob=0.5, offsets=(-0.1, 0.1)),
-        # RandGaussianNoised(keys=["image"], prob=0.5, mean=0.0, std=0.2),
+        RandAdjustContrastd(keys=["image"], prob=0.4, gamma=(0.8, 1.2)),
+        RandShiftIntensityd(keys=["image"], prob=0.4, offsets=(-0.1, 0.1)),
+        RandGaussianNoised(keys=["image"], prob=0.3, mean=0.0, std=0.05),
         # RandGaussianSmoothd(keys=["image"], prob=0.5, sigma_x=(0.5, 2.0), sigma_y=(0.5, 2.0), sigma_z=(0.5, 2.0)),
 
         RandFlipd(keys=["image", "segmentation"], prob=0.5, spatial_axis=0),
-        RandFlipd(keys=["image", "segmentation"], prob=0.5, spatial_axis=1),
-        RandFlipd(keys=["image", "segmentation"], prob=0.5, spatial_axis=2),
+        RandRotate90d(keys=["image", "segmentation"], prob=0.3, spatial_axes=(0, 1)),
     ])
 
 def get_non_aug_transforms():

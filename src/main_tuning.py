@@ -54,11 +54,11 @@ def parse_arguments():
     parser.add_argument('--model_type', type=str, default='resnet10_pretrained', 
                        choices=[mt.value for mt in ModelType],
                        help='Type of model to use')
-    parser.add_argument('--experiment_name', type=str, default='ftune', 
+    parser.add_argument('--experiment_name', type=str, default='test20', 
                        help='Name of the experiment')
     parser.add_argument('--use_Checkpoint', action='store_true', default=True, 
                        help='Use Checkpointing')
-    parser.add_argument('--prefix', type=str, default='fitunetest', 
+    parser.add_argument('--prefix', type=str, default='test', 
                        help='Prefix for saving checkpoints')
     parser.add_argument('--random_seed', type=int, default=42, 
                        help='Default random seed for reproducibility')
@@ -225,7 +225,7 @@ def main():
     # Create CV framework
     cv_framework = CrossValidationFramework(
         n_inner_folds=config.n_inner_folds,
-        epochs=50, 
+        epochs=100, 
         random_seed=config.random_seed,
     )
 
