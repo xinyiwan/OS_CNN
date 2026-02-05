@@ -62,14 +62,14 @@ class CrossValidationFramework:
         batch_size = hyperparams["batch_size"]
         
         # Unpack the data tuples
-        train_images, train_segmentations, train_labels = train_files
-        val_images, val_segmentations, val_labels = val_files
-        test_images, test_segmentations, test_labels = test_files
+        train_images, train_segmentations, train_labels, train_subs = train_files
+        val_images, val_segmentations, val_labels, val_subs = val_files
+        test_images, test_segmentations, test_labels, test_subs = test_files
         
         # Create dataframes for each split
-        train_df = self.create_dataframe_from_lists(train_images, train_segmentations, train_labels)
-        val_df = self.create_dataframe_from_lists(val_images, val_segmentations, val_labels)
-        test_df = self.create_dataframe_from_lists(test_images, test_segmentations, test_labels)
+        train_df = self.create_dataframe_from_lists(train_images, train_segmentations, train_labels, subjects=train_subs)
+        val_df = self.create_dataframe_from_lists(val_images, val_segmentations, val_labels, subjects=val_subs)
+        test_df = self.create_dataframe_from_lists(test_images, test_segmentations, test_labels, subjects=test_subs)
         
         # Get dataset parameters from hyperparams
         target_spacing = hyperparams.get("target_spacing", (1.5, 1.5, 3.0))
@@ -139,7 +139,7 @@ class CrossValidationFramework:
             num_workers=10, 
             shuffle=True, 
             pin_memory=pin_memory,
-            collate_fn=custom_collate_fn
+            collate_fn=None
         )
         val_loader = DataLoader(
             val_dataset, 
@@ -147,7 +147,7 @@ class CrossValidationFramework:
             num_workers=10,
             shuffle=False, 
             pin_memory=pin_memory,
-            collate_fn=custom_collate_fn
+            collate_fn=None
         )
         test_loader = DataLoader(
             test_dataset, 
@@ -155,7 +155,7 @@ class CrossValidationFramework:
             num_workers=10,
             shuffle=False, 
             pin_memory=pin_memory,
-            collate_fn=custom_collate_fn
+            collate_fn=None
         )
         
         print(f"Created loaders - Train: {len(train_loader.dataset)}, "
@@ -212,14 +212,16 @@ class CrossValidationFramework:
             train_data = (
                 [train_val_images[i] for i in train_indices],
                 [train_val_segmentations[i] for i in train_indices],
-                [train_val_labels[i] for i in train_indices]
+                [train_val_labels[i] for i in train_indices],
+                [train_val_subjects[i] for i in train_indices]
             )
             val_data = (
                 [train_val_images[i] for i in val_indices],
                 [train_val_segmentations[i] for i in val_indices],
-                [train_val_labels[i] for i in val_indices]
+                [train_val_labels[i] for i in val_indices],
+                [train_val_subjects[i] for i in val_indices]
             )
-            test_data_images_only = (test_data[0], test_data[1], test_data[2])
+            test_data_images_only = (test_data[0], test_data[1], test_data[2], test_data[3])
 
             
             # Create data loaders
