@@ -18,7 +18,7 @@ from config.model_types import ModelType
 from models.model_factory import ModelRegistry
 from models.resnet_factories import BaseResNetFactory, ResNetPretrainedFactory, Small3DCNNFactory, ResNetGPFactory, ResNetSNFactory, ResNetSNGPFactory 
 from cross_validation.cv_framework import CrossValidationFramework
-from training.trainer import create_training_function, create_testing_function
+from training.trainer_improved import create_training_function, create_testing_function
 from utils.callbacks import BestModelCallback
 from utils.helpers import setup_experiment_paths, suggest_common_hyperparameters, calculate_ensemble_metric
 from data.load_datapath import load_os_by_modality_version
@@ -243,10 +243,15 @@ def main():
 
         # Create training and testing functions
         train_fn = create_training_function(
-            model_type=args.model_type,
+            model_type=f'{args.model_type}',
             prefix=args.model_type,
             checkpoint_dir=checkpoint_dir,
             trial=trial,
+            patience=7,  # Increased from 5
+            # NEW PARAMETERS:
+            label_smoothing=0.1,
+            use_class_weights=True,
+            schedule_on='auc'  # or 'loss' if you prefer
         )
         test_fn = create_testing_function(
             model_type=args.model_type,
