@@ -226,10 +226,10 @@ def create_training_function(model_type: str,
                     val_data = val_data.to(device, dtype=torch.float32)
                     val_labels = val_labels.to(device)
 
-                    with autocast(device_type='cuda'):
-                        val_outputs = model(val_data)
-                        epoch_val_losses += loss_fn(val_outputs, val_labels).item()
-                        val_preds = F.softmax(val_outputs, dim=-1)
+                    # Validation WITHOUT mixed precision
+                    val_outputs = model(val_data)
+                    epoch_val_losses += loss_fn(val_outputs, val_labels).item()
+                    val_preds = F.softmax(val_outputs, dim=-1)
 
                     all_val_preds.extend(val_preds[:, 1].cpu().numpy())
                     all_val_labels.extend(val_labels.cpu().numpy())
