@@ -21,6 +21,8 @@ from utils.metrics import compute_classification_metrics, compute_expected_calib
 import time
 from datetime import timedelta
 from training.EMA import EMA
+from training.feature_check import features_clf
+from training.single_batch_ov_test import single_batch_overfit_test
 import gc
 
 
@@ -67,18 +69,25 @@ def create_training_function(model_type: str,
         
         model.train()
         model = model.to(device).float()
+
         
         # Use optimized EMA (no deepcopy overhead)
         ema_model = EMA(model, decay=ema_decay, device=device)
 
-        scaler = GradScaler(device='cuda')
+        scaler = GradScaler(device=device)
 
         train_loss_history = []
         val_loss_history = []
         best_val_loss = float('inf')  
         best_epoch = 0
         patience_count = 0
+
+        # Only for pretrained model
+        # features_clf(model, device, train_loader)
         
+        # Sanity check
+        single_batch_overfit_test(model, train_loader, device)
+
         for epoch in range(epochs):
             epoch_start = time.time()
             if 'gp' in model_type and epoch > 0:
@@ -99,13 +108,15 @@ def create_training_function(model_type: str,
                 # Train the base model with mixed precision
                 with autocast(device_type='cuda'):
                     outputs = model(batch_data)
-                    _preds = F.softmax(outputs, dim=-1)
-                    # test
-                    print(f'batch_outputs prob:{_preds}')
-                    print(f'batch_outputs prob shaoe :{_preds.shape}')
-                    print(f'batch_labels:{batch_labels}')
-                    loss = loss_fn(_preds, batch_labels)
-                    print(f'loss:{loss.item()}')
+                    loss = loss_fn(outputs, batch_labels)
+
+                    if batch_idx == 0:  # Only print first batch
+                        with torch.no_grad():
+                            _preds = F.softmax(outputs, dim=-1)
+                            print(f'batch_outputs (logits): {outputs[:3]}')
+                            print(f'batch_outputs (probs): {_preds[:3]}')
+                            print(f'batch_labels: {batch_labels[:3]}')
+                            print(f'loss: {loss.item():.4f}')
 
 
                 # Backward pass and optimization
@@ -141,8 +152,9 @@ def create_training_function(model_type: str,
 
                     with autocast(device_type='cuda'):
                         val_outputs = model(val_data)
+                        epoch_val_losses += loss_fn(val_outputs, val_labels).item()
+
                         val_preds = F.softmax(val_outputs, dim=-1)
-                        epoch_val_losses += loss_fn(val_preds, val_labels).item()
                     
                     # _preds = F.softmax(val_outputs, dim=-1)
                     all_val_preds.extend(val_preds[:, 1].tolist())
