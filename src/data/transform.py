@@ -43,7 +43,6 @@ def get_augmentation_transforms():
         RandFlipd(keys=["image", "segmentation"], prob=0.5, spatial_axis=1),
         RandFlipd(keys=["image", "segmentation"], prob=0.5, spatial_axis=2),
         RandRotate90d(keys=["image", "segmentation"], prob=0.4, spatial_axes=(0, 1)),
-        RandRotate90d(keys=["image", "segmentation"], prob=0.4, spatial_axes=(0, 2)),
 
         NormalizeIntensityd(
             keys=["image"],
