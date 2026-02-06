@@ -237,8 +237,7 @@ class Small3DCNNFactory(BaseModelFactory):
     def suggest_hyperparameters(self, trial: optuna.Trial) -> Dict[str, Any]:
         """Suggest hyperparameters optimized for small datasets"""
         params = {
-            "learning_rate": trial.suggest_categorical("learning_rate", [1e-3]),
-            "weight_decay": trial.suggest_categorical("weight_decay", [1e-4]),
+            "weight_decay": trial.suggest_categorical("weight_decay", [0.01]),
             "dropout_rate": trial.suggest_categorical("dropout_rate", [0]),
             "base_filters": trial.suggest_categorical("base_filters", [8]),  # Start small
             "num_blocks": trial.suggest_categorical("num_blocks", [3]),  # 3 or 4 conv blocks
