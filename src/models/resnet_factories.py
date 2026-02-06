@@ -14,6 +14,8 @@ from config.model_types import ModelType
 from models.resnet_sngp import ResNet, BasicBlock
 from monai.networks.nets import resnet10
 import torch
+from models.small_3dcnn import Small3DCNN  
+
 class BaseResNetFactory(BaseModelFactory):
     """Base class for all ResNet variants"""
     
@@ -222,3 +224,48 @@ class ResNetSNGPFactory(BaseResNetFactory):
             "length_scale": trial.suggest_categorical("length_scale", [0.5, 1.5]),
         })
         return params
+    
+
+# Add this new factory class to your file
+
+class Small3DCNNFactory(BaseModelFactory):
+    """Lightweight 3D CNN trained from scratch for small datasets"""
+    
+    def __init__(self):
+        self.model_type = ModelType.SMALL_3DCNN  # You'll need to add this to ModelType enum
+    
+    def suggest_hyperparameters(self, trial: optuna.Trial) -> Dict[str, Any]:
+        """Suggest hyperparameters optimized for small datasets"""
+        params = {
+            "learning_rate": trial.suggest_categorical("learning_rate", [1e-3]),
+            "weight_decay": trial.suggest_categorical("weight_decay", [1e-4]),
+            "dropout_rate": trial.suggest_categorical("dropout_rate", [0]),
+            "base_filters": trial.suggest_categorical("base_filters", [8]),  # Start small
+            "num_blocks": trial.suggest_categorical("num_blocks", [3]),  # 3 or 4 conv blocks
+        }
+        return params
+    
+    def create_model(self, hyperparams: Dict[str, Any]) -> nn.Module:
+        """Create lightweight 3D CNN"""
+        return Small3DCNN(
+            in_channels=2,
+            num_classes=2,
+            base_filters=hyperparams.get("base_filters", 32),
+            num_blocks=hyperparams.get("num_blocks", 3),
+            dropout_rate=hyperparams.get("dropout_rate", 0.4)
+        )
+    
+    def create_optimizer(self, model: nn.Module, hyperparams: Dict[str, Any]) -> optim.Optimizer:
+        """Create optimizer with moderate regularization"""
+        lr = hyperparams.get("learning_rate", 1e-3)
+        weight_decay = hyperparams.get("weight_decay", 1e-4)
+        
+        return optim.Adam(
+            model.parameters(),
+            lr=lr,
+            weight_decay=weight_decay
+        )
+    
+    def create_loss_function(self):
+        """Standard cross-entropy loss"""
+        return nn.CrossEntropyLoss()

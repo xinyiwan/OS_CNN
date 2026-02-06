@@ -16,7 +16,7 @@ from optuna.pruners import SuccessiveHalvingPruner
 from config.experiment_config import ExperimentConfig
 from config.model_types import ModelType
 from models.model_factory import ModelRegistry
-from models.resnet_factories import BaseResNetFactory, ResNetPretrainedFactory, ResNetFactory, ResNetGPFactory, ResNetSNFactory, ResNetSNGPFactory 
+from models.resnet_factories import BaseResNetFactory, ResNetPretrainedFactory, Small3DCNNFactory, ResNetGPFactory, ResNetSNFactory, ResNetSNGPFactory 
 from cross_validation.cv_framework import CrossValidationFramework
 from training.trainer import create_training_function, create_testing_function
 from utils.callbacks import BestModelCallback
@@ -210,9 +210,10 @@ def main():
     model_registry = ModelRegistry()
     model_registry.register_model(ModelType.RESNET, BaseResNetFactory)
     model_registry.register_model(ModelType.RESNET_PRE_10, ResNetPretrainedFactory)
-    # model_registry.register_model(ModelType.RESNET_SN, ResNetSNFactory)
-    # model_registry.register_model(ModelType.RESNET_GP, ResNetGPFactory)
-    # model_registry.register_model(ModelType.RESNET_SNGP, ResNetSNGPFactory)
+    model_registry.register_model(ModelType.RESNET_SN, ResNetSNFactory)
+    model_registry.register_model(ModelType.RESNET_GP, ResNetGPFactory)
+    model_registry.register_model(ModelType.RESNET_SNGP, ResNetSNGPFactory)
+    model_registry.register_model(ModelType.SMALL_3DCNN, Small3DCNNFactory)  
     
     # Get the factory class for the requested model type
     factory_class = model_registry.get_factory(model_type)
