@@ -6,7 +6,7 @@ def single_batch_overfit_test(model, train_loader, device):
 
     criterion = nn.CrossEntropyLoss()
 
-    model.train()
+    model.eval()
     batch_data, batch_labels, batch_meta = next(iter(train_loader))
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
