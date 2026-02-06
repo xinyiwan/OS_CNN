@@ -25,15 +25,25 @@ import cv2
 
 
 def get_augmentation_transforms():
+    """
+    More aggressive but realistic augmentations for small dataset.
+    Reflects real-world MRI variability: different orientations, scanner settings, noise.
+    """
     return Compose([
         EnsureChannelFirstd(keys=["image", "segmentation"], channel_dim="no_channel", allow_missing_keys=True),
-        RandAdjustContrastd(keys=["image"], prob=0.4, gamma=(0.8, 1.2)),
-        RandShiftIntensityd(keys=["image"], prob=0.4, offsets=(-0.1, 0.1)),
-        RandGaussianNoised(keys=["image"], prob=0.3, mean=0.0, std=0.05),
-        # RandGaussianSmoothd(keys=["image"], prob=0.5, sigma_x=(0.5, 2.0), sigma_y=(0.5, 2.0), sigma_z=(0.5, 2.0)),
 
+        # Intensity augmentations (more aggressive to simulate different scanner settings)
+        RandAdjustContrastd(keys=["image"], prob=0.6, gamma=(0.7, 1.3)),
+        RandShiftIntensityd(keys=["image"], prob=0.6, offsets=(-0.15, 0.15)),
+        RandGaussianNoised(keys=["image"], prob=0.4, mean=0.0, std=0.08),
+        RandGaussianSmoothd(keys=["image"], prob=0.3, sigma_x=(0.5, 1.5), sigma_y=(0.5, 1.5), sigma_z=(0.5, 1.5)),
+
+        # Spatial augmentations (multiple axes for more diversity)
         RandFlipd(keys=["image", "segmentation"], prob=0.5, spatial_axis=0),
-        RandRotate90d(keys=["image", "segmentation"], prob=0.3, spatial_axes=(0, 1)),
+        RandFlipd(keys=["image", "segmentation"], prob=0.5, spatial_axis=1),
+        RandFlipd(keys=["image", "segmentation"], prob=0.5, spatial_axis=2),
+        RandRotate90d(keys=["image", "segmentation"], prob=0.4, spatial_axes=(0, 1)),
+        RandRotate90d(keys=["image", "segmentation"], prob=0.4, spatial_axes=(0, 2)),
 
         NormalizeIntensityd(
             keys=["image"],
