@@ -125,7 +125,7 @@ def create_training_function(model_type: str,
 
         # Use optimized EMA
         ema_model = EMA(model, decay=ema_decay, device=device)
-        scaler = GradScaler(device=device)
+        # scaler = GradScaler(device=device)  # Disabled - not using mixed precision
 
         train_loss_history = []
         val_loss_history = []
@@ -291,7 +291,7 @@ def create_training_function(model_type: str,
                         'ema_model_state_dict': ema_state_dict,
                         'optimizer_state_dict': optimizer.state_dict(),
                         'scheduler_state_dict': scheduler.state_dict(),
-                        'scaler_state_dict': scaler.state_dict(),
+                        # 'scaler_state_dict': scaler.state_dict(),  # Not using scaler (no mixed precision)
                         'train_loss': train_loss,
                         'train_auc': train_auc,
                         'val_loss': val_loss,
