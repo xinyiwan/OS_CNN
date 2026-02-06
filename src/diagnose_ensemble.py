@@ -377,7 +377,7 @@ def main():
 
     hyperparams = {
         'batch_size': args.batch_size,
-        'target_spacing': (1.5, 1.5, 3.0),
+        'target_spacing': (1, 1, 2.0),
         'target_size': (192, 192, 64),
         'normalize': True,
         'crop_strategy': 'foreground',
@@ -386,6 +386,17 @@ def main():
 
     # Create dummy train/val data (not used, just for loader creation)
     dummy_data = ([], [], [], [])
+    # Create minimal dummy train/val data (not used, just for loader creation)
+    # We need at least 1 sample to avoid DataLoader errors, so reuse the first test sample
+    if len(test_data[0]) > 0:
+        dummy_data = (
+            [test_data[0][0]],  # image
+            [test_data[1][0]],  # segmentation
+            [test_data[2][0]],  # label
+            [test_data[3][0]]   # subject
+        )
+    else:
+        raise ValueError("Test data is empty!")
 
     _, _, test_loader = cv_framework.create_data_loaders(
         train_files=dummy_data,
