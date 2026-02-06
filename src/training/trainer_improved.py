@@ -165,28 +165,26 @@ def create_training_function(model_type: str,
 
                 optimizer.zero_grad()
 
-                # Train with mixed precision
-                with autocast(device_type='cuda'):
-                    outputs = model(batch_data)
-                    loss = loss_fn(outputs, batch_labels)
+                # Train WITHOUT mixed precision (disabled for numerical stability on small datasets)
+                outputs = model(batch_data)
+                loss = loss_fn(outputs, batch_labels)
 
-                    if batch_idx == 0:  # Print first batch
-                        with torch.no_grad():
-                            _preds = F.softmax(outputs, dim=-1)
-                            print(f'  Batch 0 logits: {outputs[:3]}')
-                            print(f'  Batch 0 probs:  {_preds[:3]}')
-                            print(f'  Batch 0 labels: {batch_labels[:3]}')
-                            print(f'  Batch 0 loss:   {loss.item():.4f}')
+                if batch_idx == 0:  # Print first batch
+                    with torch.no_grad():
+                        _preds = F.softmax(outputs, dim=-1)
+                        print(f'  Batch 0 logits: {outputs[:3]}')
+                        print(f'  Batch 0 probs:  {_preds[:3]}')
+                        print(f'  Batch 0 labels: {batch_labels[:3]}')
+                        print(f'  Batch 0 loss:   {loss.item():.4f}')
 
-                # Backward pass
-                scaler.scale(loss).backward()
+                # Backward pass (no mixed precision scaling)
+                loss.backward()
 
                 # Gradient clipping
-                scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
-                scaler.step(optimizer)
-                scaler.update()
+                # Optimizer step (no scaler)
+                optimizer.step()
 
                 # Update EMA
                 ema_model.update(model)
