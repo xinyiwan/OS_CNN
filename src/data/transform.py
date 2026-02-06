@@ -49,7 +49,7 @@ def get_augmentation_transforms():
             keys=["image"],
             subtrahend=None,  # Will compute mean per-sample
             divisor=None,     # Will compute std per-sample
-            nonzero=True,     # Only use non-zero values
+            nonzero=False,     # Only use non-zero values
             channel_wise=True # Normalize each channel independently
         ),
     ])
@@ -61,7 +61,7 @@ def get_non_aug_transforms():
             keys=["image"],
             subtrahend=None,  # Will compute mean per-sample
             divisor=None,     # Will compute std per-sample
-            nonzero=True,     # Only use non-zero values
+            nonzero=False,     # Only use non-zero values
             channel_wise=True # Normalize each channel independently
         ),
     ])

@@ -259,10 +259,11 @@ class Small3DCNNFactory(BaseModelFactory):
         lr = hyperparams.get("learning_rate", 1e-3)
         weight_decay = hyperparams.get("weight_decay", 1e-4)
         
-        return optim.Adam(
+        return optim.AdamW(
             model.parameters(),
             lr=lr,
-            weight_decay=weight_decay
+            weight_decay=weight_decay,
+            betas=(0.9, 0.999)
         )
     
     def create_loss_function(self):
