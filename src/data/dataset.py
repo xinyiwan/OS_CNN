@@ -386,13 +386,22 @@ class OsteosarcomaDataset(Dataset):
                 pad_width = [(0, 0)] * 3
                 pad_width[axis] = (pad_before, pad_after)
 
-                # Use edge padding for images to avoid discontinuities with background
-                result = np.pad(result, pad_width, mode='edge')
+                # Estimate background value from image corners (typically background in MRI)
+                corner_samples = [
+                    result[0, 0, 0], result[-1, -1, -1],
+                    result[0, -1, -1], result[-1, 0, -1],
+                    result[0, 0, -1], result[-1, -1, 0],
+                    result[-1, 0, 0], result[0, -1, 0]
+                ]
+                bg_value = float(np.median(corner_samples))
+
+                # Pad with estimated background value for natural appearance
+                result = np.pad(result, pad_width, mode='constant', constant_values=bg_value)
 
                 # Mask: padded voxels are *invalid*
                 valid_mask = np.pad(valid_mask, pad_width, mode='constant', constant_values=False)
 
-                # Keep seg_work geometry in sync - use constant 0 for segmentation background
+                # Keep seg_work geometry in sync - use 0 for segmentation background
                 if seg_work is not None:
                     seg_work = np.pad(seg_work, pad_width, mode='constant', constant_values=0)
 
