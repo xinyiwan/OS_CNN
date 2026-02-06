@@ -106,17 +106,17 @@ def create_training_function(model_type: str,
                 optimizer.zero_grad()
 
                 # Train the base model with mixed precision
-                with autocast(device_type='cuda'):
-                    outputs = model(batch_data)
-                    loss = loss_fn(outputs, batch_labels)
+                # with autocast(device_type='cuda'):
+                outputs = model(batch_data)
+                loss = loss_fn(outputs, batch_labels)
 
-                    if batch_idx == 0:  # Only print first batch
-                        with torch.no_grad():
-                            _preds = F.softmax(outputs, dim=-1)
-                            print(f'batch_outputs (logits): {outputs[:3]}')
-                            print(f'batch_outputs (probs): {_preds[:3]}')
-                            print(f'batch_labels: {batch_labels[:3]}')
-                            print(f'loss: {loss.item():.4f}')
+                if batch_idx == 0:  # Only print first batch
+                    with torch.no_grad():
+                        _preds = F.softmax(outputs, dim=-1)
+                        print(f'batch_outputs (logits): {outputs[:3]}')
+                        print(f'batch_outputs (probs): {_preds[:3]}')
+                        print(f'batch_labels: {batch_labels[:3]}')
+                        print(f'loss: {loss.item():.4f}')
 
 
                 # Backward pass and optimization
@@ -150,11 +150,11 @@ def create_training_function(model_type: str,
                     val_data = val_data.to(device, dtype=torch.float32)
                     val_labels = val_labels.to(device)
 
-                    with autocast(device_type='cuda'):
-                        val_outputs = model(val_data)
-                        epoch_val_losses += loss_fn(val_outputs, val_labels).item()
+                    # with autocast(device_type='cuda'):
+                    val_outputs = model(val_data)
+                    epoch_val_losses += loss_fn(val_outputs, val_labels).item()
 
-                        val_preds = F.softmax(val_outputs, dim=-1)
+                    val_preds = F.softmax(val_outputs, dim=-1)
                     
                     # _preds = F.softmax(val_outputs, dim=-1)
                     all_val_preds.extend(val_preds[:, 1].tolist())
