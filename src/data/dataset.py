@@ -382,19 +382,20 @@ class OsteosarcomaDataset(Dataset):
                 pad_total = target_len - current_len
                 pad_before = pad_total // 2
                 pad_after = pad_total - pad_before
-                
+
                 pad_width = [(0, 0)] * 3
                 pad_width[axis] = (pad_before, pad_after)
-                
-                result = np.pad(result, pad_width, mode='constant', constant_values=0)
+
+                # Use edge padding for images to avoid discontinuities with background
+                result = np.pad(result, pad_width, mode='edge')
 
                 # Mask: padded voxels are *invalid*
                 valid_mask = np.pad(valid_mask, pad_width, mode='constant', constant_values=False)
 
-                # Keep seg_work geometry in sync (value doesn't matter here)
+                # Keep seg_work geometry in sync - use constant 0 for segmentation background
                 if seg_work is not None:
                     seg_work = np.pad(seg_work, pad_width, mode='constant', constant_values=0)
-                
+
                 operations.append(f'pad_axis_{axis}')
             
             else:
