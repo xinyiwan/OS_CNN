@@ -195,7 +195,7 @@ class OsteosarcomaDataset(Dataset):
         )
         
         # Combine metadata
-        metadata = original_metadata
+        metadata = {**original_metadata}
         # metadata = {**original_metadata, **processing_metadata}
         
         return image_processed, segmentation_processed, metadata
@@ -227,7 +227,6 @@ class OsteosarcomaDataset(Dataset):
         1. Swap axes to standard orientation
         2. Resample to target spacing
         3. Crop/Pad to target size
-        4. Normalize intensity
         """
         processing_metadata = {}
         
@@ -256,25 +255,15 @@ class OsteosarcomaDataset(Dataset):
         processing_metadata['shape_after_resample'] = image_resampled.shape
         
         # Step 3: Crop/Pad to target size
-        image_final, crop_pad_info_img = self._crop_or_pad(
+        image_final, image_valid_mask, crop_pad_info_img = self._crop_or_pad(
             image_resampled, segmentation_resampled
         )
-        segmentation_final, crop_pad_info_seg = self._crop_or_pad(
+        segmentation_final, seg_valid_mask, crop_pad_info_seg = self._crop_or_pad(
             segmentation_resampled, segmentation_resampled
         )
         
-        # processing_metadata['crop_pad_info'] = {
-        #     'image': crop_pad_info_img,
-        #     'segmentation': crop_pad_info_seg
-        # }
-        
-        # Step 4: Normalize intensity
-        if self.normalize:
-            image_final, norm_info = self._normalize_intensity(image_final)
-            processing_metadata['normalization_info'] = norm_info
-        
         processing_metadata['final_shape'] = image_final.shape
-        # processing_metadata['final_spacing'] = spacing_swapped * resample_factor_img
+        processing_metadata['valid_mask'] = image_valid_mask
         
         return image_final, segmentation_final, processing_metadata
 
@@ -343,14 +332,22 @@ class OsteosarcomaDataset(Dataset):
         data: np.ndarray, 
         segmentation: Optional[np.ndarray] = None,
     ) -> Tuple[np.ndarray, Dict]:
-        """Simpler version that handles mixed crop/pad per axis"""
+        """
+        Crop or pad 'data' to self.target_size, and return a boolean mask that marks
+        which voxels come from the original image (True) and which are padded (False).
+        """
         current_shape = np.array(data.shape)
         target_shape = self.target_size
         
         if np.array_equal(current_shape, target_shape):
+            # All voxels are from the original image
+            valid_mask = np.ones_like(data, dtype=bool)
             return data, {'action': 'none'}
         
         result = data.copy()
+        valid_mask = np.ones_like(data, dtype=bool)  # start: everything valid
+        seg_work = None if segmentation is None else segmentation.copy()
+
         operations = []
         
         # Process each axis independently
@@ -362,15 +359,21 @@ class OsteosarcomaDataset(Dataset):
                 # Need to crop this axis
                 if self.crop_strategy == 'center':
                     crop_start = (current_len - target_len) // 2
-                if self.crop_strategy == 'foreground' and segmentation is not None:
-                    crop_start, _ = self._get_foreground_crop_bounds_single_axis(segmentation, target_shape, axis)
+                    crop_end = crop_start + target_len
+                if self.crop_strategy == 'foreground' and seg_work is not None:
+                    crop_start, crop_end = self._get_foreground_crop_bounds_single_axis(seg_work, target_shape, axis)
                 else:
                     crop_start = (current_len - target_len) // 2
+                    crop_end = crop_start + target_len
                 
                 # Apply crop for this axis
                 slices = [slice(None)] * 3
-                slices[axis] = slice(crop_start, crop_start + target_len)
+                slices[axis] = slice(crop_start, crop_end)
                 result = result[tuple(slices)]
+                valid_mask = valid_mask[tuple(slices)]
+                if seg_work is not None:
+                    seg_work = seg_work[tuple(slices)]
+
                 
                 operations.append(f'crop_axis_{axis}')
                 
@@ -384,6 +387,13 @@ class OsteosarcomaDataset(Dataset):
                 pad_width[axis] = (pad_before, pad_after)
                 
                 result = np.pad(result, pad_width, mode='constant', constant_values=0)
+
+                # Mask: padded voxels are *invalid*
+                valid_mask = np.pad(valid_mask, pad_width, mode='constant', constant_values=False)
+
+                # Keep seg_work geometry in sync (value doesn't matter here)
+                if seg_work is not None:
+                    seg_work = np.pad(seg_work, pad_width, mode='constant', constant_values=0)
                 
                 operations.append(f'pad_axis_{axis}')
             
@@ -391,16 +401,17 @@ class OsteosarcomaDataset(Dataset):
                 continue
         
         # Determine overall action
-        if 'crop' in str(operations) and 'pad' in str(operations):
+        op_str = ' '.join(operations)
+        if 'crop' in op_str and 'pad' in op_str:
             action_type = 'crop_and_pad'
-        elif 'crop' in str(operations):
+        elif 'crop' in op_str:
             action_type = 'crop'
-        elif 'pad' in str(operations):
+        elif 'pad' in op_str:
             action_type = 'pad'
         else:
             action_type = 'none'
         
-        return result, {'action': action_type, 'operations': operations}
+        return result, valid_mask, {'action': action_type, 'operations': operations}
     
     def _get_foreground_crop_bounds_single_axis(
         self, 
@@ -442,25 +453,41 @@ class OsteosarcomaDataset(Dataset):
         
         return start, end
 
-    def _normalize_intensity(self, image: np.ndarray) -> Tuple[np.ndarray, Dict]:
-        """Normalize image intensity with outlier clipping"""
+    def _normalize_intensity(self, image: np.ndarray,  valid_mask: np.ndarray) -> Tuple[np.ndarray, Dict]:
+        
+        """
+            Normalize 'image' using statistics computed only on voxels where valid_mask==True.
+            Applies percentile clipping on the same foreground set.
+        """
+        assert image.shape == valid_mask.shape, "image and valid_mask must have identical shapes"
+
+        fg = image[valid_mask]
+
+        if fg.size == 0:
+            # Edge case: nothing valid; return as-is
+            return image, {'note': 'empty_valid_mask'}
+
         # Clip outliers using percentiles
         p_low, p_high = np.percentile(image, [1, 99])
         image_clipped = np.clip(image, p_low, p_high)
         
-        # Normalize to 0-1 range
-        image_normalized = (image_clipped - p_low) / (p_high - p_low + 1e-8)
-        
+        # Z-score normalization (mean=0, std=1)
+        mean = float(fg.mean())
+        std = float(fg.std() + 1e-8)
+        image = (image - mean) / std
+
+        image[~valid_mask] = 0.0
+            
         norm_info = {
             'percentile_low': float(p_low),
             'percentile_high': float(p_high),
+            'mean': float(mean),
+            'std': float(std),
             'min_value': float(np.min(image)),
-            'max_value': float(np.max(image)),
-            'min_value_clipped': float(np.min(image_clipped)),
-            'max_value_clipped': float(np.max(image_clipped))
+            'max_value': float(np.max(image))
         }
         
-        return image_normalized, norm_info
+        return image, norm_info
 
     def clear_cache(self):
         """Clear the data cache"""
@@ -519,22 +546,40 @@ def quick_test(modality, version, strategy):
     
     fig_dir = f'/projects/prjs1779/Osteosarcoma/preprocessing/dataloader/preprocess/{strategy}/{modality}_figs/V{version}'
     os.makedirs(fig_dir, exist_ok=True)
-    
+
     print("Initializing dataset...")
     dataset = OsteosarcomaDataset(
-        data_df=test_df,
+        data_df=test_df[0:10],
         image_col='image_path',
         segmentation_col=f'seg_v{version}_path',
-        transform=get_augmentation_transforms(),
+        transform=get_non_aug_transforms(),
         target_spacing=(1.0, 1.0, 2.0),
-        target_size=(288, 288, 64),
+        target_size=(192, 192, 48),
         normalize=True,
         crop_strategy='foreground'
     )
     print("Creating data loader...")
     loader = DataLoader(
         dataset, 
-        batch_size=8, 
+        batch_size=10, 
+        shuffle=False, 
+        num_workers=1,
+        collate_fn=None  # Add this line
+    )
+    aug_dataset = OsteosarcomaDataset(
+        data_df=test_df,
+        image_col='image_path',
+        segmentation_col=f'seg_v{version}_path',
+        transform=get_augmentation_transforms(),
+        target_spacing=(1.0, 1.0, 2.0),
+        target_size=(192, 192, 48),
+        normalize=True,
+        crop_strategy='foreground'
+    )
+
+    aug_loader = DataLoader(
+        aug_dataset, 
+        batch_size=10, 
         shuffle=False, 
         num_workers=1,
         collate_fn=None  # Add this line
@@ -542,15 +587,77 @@ def quick_test(modality, version, strategy):
 
     print(f"Modality: {modality}; Version: {version}; Lenth: {dataset.__len__()}")
     
-    batch, labels, metas = next(iter(loader))
+    # Before augmentation
+    batch_orig, _, _ = next(iter(loader))  # Without augmentation
+    print("Without augmentation:")
+    print(f"  Range: [{batch_orig[0].min():.3f}, {batch_orig[0].max():.3f}]")
+    print(f"  Mean: {batch_orig[0].mean():.3f}, Std: {batch_orig[0].std():.3f}")
 
-    print(f"Batch shape: {batch.shape}")
-    print(f"Batch dtype: {batch.dtype}")
+    # After augmentation  
+    batch_aug, _, _ = next(iter(aug_loader))  # With augmentation
+    print("\nWith augmentation:")
+    print(f"  Range: [{batch_aug[0].min():.3f}, {batch_aug[0].max():.3f}]")
+    print(f"  Mean: {batch_aug[0].mean():.3f}, Std: {batch_aug[0].std():.3f}")
+
+
+    # Check a single sample in detail
+    batch_data = batch_aug
+
+    print("="*60)
+    print("DETAILED CHANNEL INSPECTION")
+    print("="*60)
+
+    print(f"\nFull batch shape: {batch_data.shape}")
+    print(f"Full batch range: [{batch_data.min():.3f}, {batch_data.max():.3f}]")
+
+    # Check first sample
+    sample = batch_data[0]  # Shape: [2, 288, 288, 64]
+
+    print(f"\n--- CHANNEL 0 (should be MRI image) ---")
+    ch0 = sample[0]  # Shape: [288, 288, 64]
+    print(f"Shape: {ch0.shape}")
+    print(f"Range: [{ch0.min():.3f}, {ch0.max():.3f}]")
+    print(f"Mean: {ch0.mean():.3f}, Std: {ch0.std():.3f}")
+    print(f"Unique values (first 20): {torch.unique(ch0)[:20]}")
+    print(f"Num unique values: {len(torch.unique(ch0))}")
+    print(f"% zeros: {(ch0 == 0).float().mean()*100:.1f}%")
+
+    print(f"\n--- CHANNEL 1 (should be segmentation) ---")
+    ch1 = sample[1]  # Shape: [288, 288, 64]
+    print(f"Shape: {ch1.shape}")
+    print(f"Range: [{ch1.min():.3f}, {ch1.max():.3f}]")
+    print(f"Mean: {ch1.mean():.3f}, Std: {ch1.std():.3f}")
+    print(f"Unique values: {torch.unique(ch1)}")
+    print(f"Num unique values: {len(torch.unique(ch1))}")
+    print(f"% zeros: {(ch1 == 0).float().mean()*100:.1f}%")
+
+    # Visualize a slice
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+
+    mid_slice = ch0.shape[-1] // 2
+
+    axes[0].imshow(ch0[:, :, mid_slice].cpu().numpy(), cmap='gray')
+    axes[0].set_title(f'Channel 0 (Image)\nRange: [{ch0.min():.2f}, {ch0.max():.2f}]')
+    axes[0].axis('off')
+
+    axes[1].imshow(ch1[:, :, mid_slice].cpu().numpy(), cmap='gray')
+    axes[1].set_title(f'Channel 1 (Segmentation)\nRange: [{ch1.min():.2f}, {ch1.max():.2f}]')
+    axes[1].axis('off')
+
+    # Overlay
+    axes[2].imshow(ch0[:, :, mid_slice].cpu().numpy(), cmap='gray')
+    axes[2].imshow(ch1[:, :, mid_slice].cpu().numpy(), cmap='Reds', alpha=0.3)
+    axes[2].set_title('Overlay')
+    axes[2].axis('off')
+
+    plt.tight_layout()
+    plt.savefig('/projects/prjs1779/Osteosarcoma/channel_visualization.png', dpi=150, bbox_inches='tight')
+    plt.close()
+
+    print("\n✅ Visualization saved to outputs/channel_visualization.png")
     
-    batch_expected_gb = 32 * 2 * 288 * 288 * 64 * 4 / 1e9
-    batch_actual_gb = batch.element_size() * batch.nelement() / 1e9
-    print(f"Expected batch memory (float32): {batch_expected_gb:.2f} GB")
-    print(f"Actual batch memory: {batch_actual_gb:.2f} GB")
 
     # Simple version for quick testing
     def quick_overlay(image, seg, title, save_path, strategy):
@@ -588,29 +695,29 @@ def quick_test(modality, version, strategy):
         plt.savefig(save_path, dpi=120, bbox_inches='tight')
         plt.close()
 
-    # # Usage in your existing loop:
-    # print("Loading first batch...")
-    # i = 0
-    # for batch_data, labels, metadata in loader:
-    #     # batch_data shape: [batch_size, 2, H, W]
-    #     # Where channel 0 = image, channel 1 = segmentation
+    # Usage in your existing loop:
+    print("Loading first batch...")
+    i = 0
+    for batch_data, labels, metadata in aug_loader:
+        # batch_data shape: [batch_size, 2, H, W]
+        # Where channel 0 = image, channel 1 = segmentation
         
-    #     batch_size = batch_data.shape[0]
+        batch_size = batch_data.shape[0]
         
-    #     for batch_idx in range(batch_size):
-    #         # Extract image and segmentation for this sample
-    #         image = batch_data[batch_idx, 0].numpy()  # Shape: [H, W]
-    #         seg = batch_data[batch_idx, 1].numpy()    # Shape: [H, W]
+        for batch_idx in range(batch_size):
+            # Extract image and segmentation for this sample
+            image = batch_data[batch_idx, 0].numpy()  # Shape: [H, W]
+            seg = batch_data[batch_idx, 1].numpy()    # Shape: [H, W]
             
-    #         subject_id = metadata[batch_idx].get('subject_id', f'unknown')
-    #         print(f"Sample {i} - Subject ID: {subject_id}, Image shape: {image.shape}, Seg shape: {seg.shape}")
-    #         quick_overlay(
-    #             image, seg,
-    #             f'Sample {i} - {subject_id}',
-    #             f'/projects/prjs1779/Osteosarcoma/preprocessing/dataloader/preprocess/{strategy}/{modality}_figs/V{version}/{i}_{subject_id}.png',
-    #             strategy
-    #         )
-    #         i += 1
+            subject_id = metadata['subject_id'][batch_idx]
+            print(f"Sample {i} - Subject ID: {subject_id}, Image shape: {image.shape}, Seg shape: {seg.shape}")
+            quick_overlay(
+                image, seg,
+                f'Sample {i} - {subject_id}',
+                f'/projects/prjs1779/Osteosarcoma/preprocessing/dataloader/preprocess/{strategy}/{modality}_figs/V{version}/{i}_{subject_id}.png',
+                strategy
+            )
+            i += 1
 
 
 if __name__ == "__main__":
@@ -620,7 +727,7 @@ if __name__ == "__main__":
     args.add_argument('--version', type=int, default=1, help='Segmentation version to test')
     parsed_args = args.parse_args() 
     
-    quick_test(modality='T1W_FS_C', version=1, strategy='more_aug')
+    quick_test(modality='T1W_FS_C', version=1, strategy='norm')
     # quick_test(modality='T1W_FS_C', version=1)
     # quick_test(modality='T2W_FS', version=1)
 

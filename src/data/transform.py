@@ -17,7 +17,9 @@ from monai.transforms import (
     RandGaussianNoised,
     RandGaussianSmoothd,
     MapTransform,
-    ToTensord
+    ToTensord,
+    NormalizeIntensityd,
+    ScaleIntensityRangePercentilesd
 )
 import cv2
 
@@ -32,11 +34,26 @@ def get_augmentation_transforms():
 
         RandFlipd(keys=["image", "segmentation"], prob=0.5, spatial_axis=0),
         RandRotate90d(keys=["image", "segmentation"], prob=0.3, spatial_axes=(0, 1)),
+
+        NormalizeIntensityd(
+            keys=["image"],
+            subtrahend=None,  # Will compute mean per-sample
+            divisor=None,     # Will compute std per-sample
+            nonzero=True,     # Only use non-zero values
+            channel_wise=True # Normalize each channel independently
+        ),
     ])
 
 def get_non_aug_transforms():
     return Compose([
         EnsureChannelFirstd(keys=["image", "segmentation"], channel_dim="no_channel", allow_missing_keys=True),
+        NormalizeIntensityd(
+            keys=["image"],
+            subtrahend=None,  # Will compute mean per-sample
+            divisor=None,     # Will compute std per-sample
+            nonzero=True,     # Only use non-zero values
+            channel_wise=True # Normalize each channel independently
+        ),
     ])
 
 
