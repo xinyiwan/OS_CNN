@@ -179,17 +179,21 @@ def compute_confidence(metric, N_train, N_test, alpha=0.95):
     return CI
 
 
-def generate_roc_with_ci(exp_name, modality, model_type='resnet10_pretrained', alpha=0.95, n_thresholds=100):
+def generate_roc_with_ci(exp_name, modality, model_type='resnet10_pretrained', alpha=0.95, n_samples=20):
     """
     Generate ROC curve data with confidence intervals across folds.
+    Uses WORC-style threshold sampling: collects all thresholds from ROC curves
+    and samples them intelligently.
 
     Returns a DataFrame with FPR and TPR ranges for each threshold.
     """
     m = modality.lower()
     md = model_type
 
-    # Collect all fold predictions
-    all_predictions = []
+    # Collect all fold predictions and compute ROC curves
+    all_fpr = []
+    all_tpr = []
+    all_thresholds = []
 
     for fold in range(20):
         ensemble_res = f'/scratch-shared/xwan1/experiments/{exp_name}/{m}/{m}_{fold}_{md}/best_models_for_ensemble/predictions_ensemble.csv'
@@ -197,67 +201,71 @@ def generate_roc_with_ci(exp_name, modality, model_type='resnet10_pretrained', a
         if os.path.exists(ensemble_res):
             df = pd.read_csv(ensemble_res)
             if not df.empty and len(np.unique(df['ground_truth'])) == 2:
-                all_predictions.append({
-                    'fold': fold,
-                    'probabilities': df['probability'].values,
-                    'labels': df['ground_truth'].values
-                })
+                # Compute ROC curve for this fold
+                fpr, tpr, thresholds = roc_curve(df['ground_truth'].values,
+                                                  df['probability'].values)
+                all_fpr.append(fpr)
+                all_tpr.append(tpr)
+                all_thresholds.append(thresholds)
 
-    if not all_predictions:
+    if not all_fpr:
         print("❌ No valid predictions found for ROC curve generation")
         return None
 
-    print(f"✅ Found {len(all_predictions)} valid folds for ROC curve generation")
+    print(f"✅ Found {len(all_fpr)} valid folds for ROC curve generation")
 
     # Get sample sizes for CI calculation
     distribution_df = pd.read_csv(LABEL_DIS)
     median_n_train = int(np.mean(distribution_df[distribution_df['modality'] == modality]['train_total'].values))
     median_n_test = int(np.mean(distribution_df[distribution_df['modality'] == modality]['test_total'].values))
 
-    # Define thresholds
-    thresholds = np.linspace(0, 1, n_thresholds)
+    # WORC-style threshold sampling: combine all thresholds and sample indices
+    T = []
+    for t in all_thresholds:
+        T.extend(t)
+    T = sorted(T, reverse=True)  # Sort in descending order (high to low threshold)
 
-    # Calculate FPR and TPR for each threshold across all folds
+    # Sample indices uniformly across the combined threshold space
+    tsamples = np.linspace(0, len(T) - 1, n_samples).astype(int)
+
+    # Compute FPR and TPR at each sampled threshold for all folds
+    n_folds = len(all_fpr)
+    fpr_matrix = np.zeros((n_samples, n_folds))
+    tpr_matrix = np.zeros((n_samples, n_folds))
+    sampled_thresholds = []
+
+    for n_sample, tidx in enumerate(tsamples):
+        sample_threshold = T[tidx]
+        sampled_thresholds.append(sample_threshold)
+
+        # For each fold, find the FPR/TPR at this threshold
+        for i_fold in range(n_folds):
+            # Find the index where fold threshold is <= sample threshold
+            # (thresholds are in descending order from roc_curve)
+            idx = 0
+            while (idx < len(all_thresholds[i_fold]) - 1 and
+                   all_thresholds[i_fold][idx] > sample_threshold):
+                idx += 1
+
+            fpr_matrix[n_sample, i_fold] = all_fpr[i_fold][idx]
+            tpr_matrix[n_sample, i_fold] = all_tpr[i_fold][idx]
+
+    # Compute confidence intervals for FPR and TPR at each sampled threshold
     roc_data = []
-
-    for threshold in thresholds:
-        fpr_values = []
-        tpr_values = []
-
-        for pred_data in all_predictions:
-            probs = pred_data['probabilities']
-            labels = pred_data['labels']
-
-            # Make predictions with current threshold
-            preds = (probs >= threshold).astype(int)
-
-            # Calculate confusion matrix
-            tn, fp, fn, tp = confusion_matrix(labels, preds).ravel()
-
-            # Calculate TPR and FPR
-            tpr = tp / (tp + fn) if (tp + fn) > 0 else 0
-            fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
-
-            fpr_values.append(fpr)
-            tpr_values.append(tpr)
-
-        # Compute confidence intervals
-        fpr_values = np.array(fpr_values)
-        tpr_values = np.array(tpr_values)
+    for n_sample in range(n_samples):
+        fpr_values = fpr_matrix[n_sample, :]
+        tpr_values = tpr_matrix[n_sample, :]
 
         fpr_ci = compute_confidence(fpr_values, median_n_train, median_n_test, alpha)
         tpr_ci = compute_confidence(tpr_values, median_n_train, median_n_test, alpha)
 
         roc_data.append({
-            'threshold': threshold,
+            'threshold': sampled_thresholds[n_sample],
             'FPR': f"[{fpr_ci[0]:.8f} {fpr_ci[1]:.8f}]",
             'TPR': f"[{tpr_ci[0]:.8f} {tpr_ci[1]:.8f}]"
         })
 
-    # Convert to DataFrame and reverse order (from threshold 1 to 0)
     roc_df = pd.DataFrame(roc_data)
-    roc_df = roc_df.iloc[::-1].reset_index(drop=True)
-
     return roc_df
 
 
@@ -267,7 +275,7 @@ def main():
     parser.add_argument('--exp_name', type=str, default='pretrain', help='Experiment name')
     parser.add_argument('--model_type', type=str, default='resnet10_pretrained', help='Model type')
     parser.add_argument('--alpha', type=float, default=0.95, help='Confidence level')
-    parser.add_argument('--n_thresholds', type=int, default=100, help='Number of thresholds for ROC curve')
+    parser.add_argument('--n_samples', type=int, default=20, help='Number of sample points for ROC curve')
 
     args = parser.parse_args()
     
@@ -366,7 +374,7 @@ def main():
         args.modality,
         args.model_type,
         args.alpha,
-        args.n_thresholds
+        args.n_samples
     )
 
     if roc_df is not None:
