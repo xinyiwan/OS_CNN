@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import glob, os
 import argparse
-from sklearn.metrics import roc_auc_score, accuracy_score, confusion_matrix
+from sklearn.metrics import roc_auc_score, accuracy_score, confusion_matrix, roc_curve
 import scipy.stats as st
 import warnings
 warnings.filterwarnings('ignore')
@@ -179,13 +179,96 @@ def compute_confidence(metric, N_train, N_test, alpha=0.95):
     return CI
 
 
+def generate_roc_with_ci(exp_name, modality, model_type='resnet10_pretrained', alpha=0.95, n_thresholds=100):
+    """
+    Generate ROC curve data with confidence intervals across folds.
+
+    Returns a DataFrame with FPR and TPR ranges for each threshold.
+    """
+    m = modality.lower()
+    md = model_type
+
+    # Collect all fold predictions
+    all_predictions = []
+
+    for fold in range(20):
+        ensemble_res = f'/scratch-shared/xwan1/experiments/{exp_name}/{m}/{m}_{fold}_{md}/best_models_for_ensemble/predictions_ensemble.csv'
+
+        if os.path.exists(ensemble_res):
+            df = pd.read_csv(ensemble_res)
+            if not df.empty and len(np.unique(df['ground_truth'])) == 2:
+                all_predictions.append({
+                    'fold': fold,
+                    'probabilities': df['probability'].values,
+                    'labels': df['ground_truth'].values
+                })
+
+    if not all_predictions:
+        print("❌ No valid predictions found for ROC curve generation")
+        return None
+
+    print(f"✅ Found {len(all_predictions)} valid folds for ROC curve generation")
+
+    # Get sample sizes for CI calculation
+    distribution_df = pd.read_csv(LABEL_DIS)
+    median_n_train = int(np.mean(distribution_df[distribution_df['modality'] == modality]['train_total'].values))
+    median_n_test = int(np.mean(distribution_df[distribution_df['modality'] == modality]['test_total'].values))
+
+    # Define thresholds
+    thresholds = np.linspace(0, 1, n_thresholds)
+
+    # Calculate FPR and TPR for each threshold across all folds
+    roc_data = []
+
+    for threshold in thresholds:
+        fpr_values = []
+        tpr_values = []
+
+        for pred_data in all_predictions:
+            probs = pred_data['probabilities']
+            labels = pred_data['labels']
+
+            # Make predictions with current threshold
+            preds = (probs >= threshold).astype(int)
+
+            # Calculate confusion matrix
+            tn, fp, fn, tp = confusion_matrix(labels, preds).ravel()
+
+            # Calculate TPR and FPR
+            tpr = tp / (tp + fn) if (tp + fn) > 0 else 0
+            fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
+
+            fpr_values.append(fpr)
+            tpr_values.append(tpr)
+
+        # Compute confidence intervals
+        fpr_values = np.array(fpr_values)
+        tpr_values = np.array(tpr_values)
+
+        fpr_ci = compute_confidence(fpr_values, median_n_train, median_n_test, alpha)
+        tpr_ci = compute_confidence(tpr_values, median_n_train, median_n_test, alpha)
+
+        roc_data.append({
+            'threshold': threshold,
+            'FPR': f"[{fpr_ci[0]:.8f} {fpr_ci[1]:.8f}]",
+            'TPR': f"[{tpr_ci[0]:.8f} {tpr_ci[1]:.8f}]"
+        })
+
+    # Convert to DataFrame and reverse order (from threshold 1 to 0)
+    roc_df = pd.DataFrame(roc_data)
+    roc_df = roc_df.iloc[::-1].reset_index(drop=True)
+
+    return roc_df
+
+
 def main():
     parser = argparse.ArgumentParser(description="Combine ensemble predictions and compute CIs")
     parser.add_argument('--modality', type=str, default='T1W_FS_C', help='Image modality')
     parser.add_argument('--exp_name', type=str, default='pretrain', help='Experiment name')
     parser.add_argument('--model_type', type=str, default='resnet10_pretrained', help='Model type')
     parser.add_argument('--alpha', type=float, default=0.95, help='Confidence level')
-    
+    parser.add_argument('--n_thresholds', type=int, default=100, help='Number of thresholds for ROC curve')
+
     args = parser.parse_args()
     
     print(f"\nCombining predictions for:")
@@ -267,7 +350,7 @@ def main():
     if len(accuracy_values) > 0:
         print(f"Accuracy: {np.mean(accuracy_values):.3f} ± {np.std(accuracy_values):.3f}")
     
-    # Save results    
+    # Save results
     res_dir = '/projects/prjs1779/Osteosarcoma/OS_CNN_res'
     metrics_output = os.path.join(res_dir, f"{args.exp_name}", f"{args.modality}", f"metrics_CI.csv")
     os.makedirs(os.path.dirname(metrics_output), exist_ok=True)
@@ -275,6 +358,23 @@ def main():
     metrics_df = metrics_df.round(2)
     metrics_df.to_csv(metrics_output, index=False)
     print(f"✅ Fold metrics saved to: {metrics_output}")
+
+    # Step 4: Generate ROC curve data with confidence intervals
+    print(f"\nGenerating ROC curve data with confidence intervals...")
+    roc_df = generate_roc_with_ci(
+        args.exp_name,
+        args.modality,
+        args.model_type,
+        args.alpha,
+        args.n_thresholds
+    )
+
+    if roc_df is not None:
+        roc_output = os.path.join(res_dir, f"{args.exp_name}", f"{args.modality}", f"roc_curve_ci.csv")
+        roc_df.to_csv(roc_output, index=False)
+        print(f"✅ ROC curve data saved to: {roc_output}")
+    else:
+        print("❌ Failed to generate ROC curve data")
 
 
 if __name__ == "__main__":
