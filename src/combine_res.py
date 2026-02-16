@@ -20,7 +20,7 @@ def combine_performance_from_ensembles(exp_name, modality, model_type='resnet10_
     
     for fold in range(20):
         # Ensemble path pattern
-        ensemble_res = f'/scratch-shared/xwan1/experiments/{exp_name}/{m}/{m}_{fold}_{md}/best_models_for_ensemble/predictions_ensemble.csv'
+        ensemble_res = f'/projects/prjs1779/Osteosarcoma/experiments/{exp_name}/{m}/{m}_{fold}_{md}/best_models_for_ensemble/predictions_ensemble.csv'
         
         if not os.path.exists(ensemble_res):
             # If ensemble file doesn't exist, create it by combining inner folds
@@ -179,7 +179,7 @@ def compute_confidence(metric, N_train, N_test, alpha=0.95):
     return CI
 
 
-def generate_roc_with_ci(exp_name, modality, model_type='resnet10_pretrained', alpha=0.95, n_thresholds=100):
+def generate_roc_with_ci(exp_name, modality, model_type='resnet10_pretrained', alpha=0.95, n_thresholds=10):
     """
     Generate ROC curve data with confidence intervals across folds.
 
@@ -192,7 +192,7 @@ def generate_roc_with_ci(exp_name, modality, model_type='resnet10_pretrained', a
     all_predictions = []
 
     for fold in range(20):
-        ensemble_res = f'/scratch-shared/xwan1/experiments/{exp_name}/{m}/{m}_{fold}_{md}/best_models_for_ensemble/predictions_ensemble.csv'
+        ensemble_res = f'/projects/prjs1779/Osteosarcoma/experiments/{exp_name}/{m}/{m}_{fold}_{md}/best_models_for_ensemble/predictions_ensemble.csv'
 
         if os.path.exists(ensemble_res):
             df = pd.read_csv(ensemble_res)
@@ -267,7 +267,7 @@ def main():
     parser.add_argument('--exp_name', type=str, default='pretrain', help='Experiment name')
     parser.add_argument('--model_type', type=str, default='resnet10_pretrained', help='Model type')
     parser.add_argument('--alpha', type=float, default=0.95, help='Confidence level')
-    parser.add_argument('--n_thresholds', type=int, default=100, help='Number of thresholds for ROC curve')
+    parser.add_argument('--n_thresholds', type=int, default=10, help='Number of thresholds for ROC curve')
 
     args = parser.parse_args()
     
