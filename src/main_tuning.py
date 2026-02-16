@@ -251,7 +251,7 @@ def main():
             # NEW PARAMETERS:
             label_smoothing=0.1,
             use_class_weights=True,
-            schedule_on='auc'  # or 'loss' if you prefer
+            schedule_on='loss'  # or 'loss' if you prefer
         )
         test_fn = create_testing_function(
             model_type=args.model_type,

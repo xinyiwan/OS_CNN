@@ -239,8 +239,8 @@ class Small3DCNNFactory(BaseModelFactory):
         params = {
             "weight_decay": trial.suggest_categorical("weight_decay", [0.01]),
             "dropout_rate": trial.suggest_categorical("dropout_rate", [0.2]),
-            "base_filters": trial.suggest_categorical("base_filters", [12]),  # Start small
-            "num_blocks": trial.suggest_categorical("num_blocks", [2]),  #
+            "base_filters": trial.suggest_categorical("base_filters", [8]),  # Start small
+            "num_blocks": trial.suggest_categorical("num_blocks", [3]),  #
         }
         return params
     

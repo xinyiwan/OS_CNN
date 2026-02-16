@@ -23,7 +23,7 @@ def suggest_common_hyperparameters(trial: optuna.Trial) -> Dict[str, Any]:
 
     # for test, fix the num_aug and batch size
     num_aug = trial.suggest_categorical("num_augmentations", [6])
-    batch_size = trial.suggest_categorical("batch_size", [8])
+    batch_size = trial.suggest_categorical("batch_size", [16])
 
     # for test, fix the lr_base\
     lr_base = trial.suggest_categorical("learning_rate", [1e-4])

@@ -242,7 +242,7 @@ class CrossValidationFramework:
             model.to(device).float()
             
             # Learning Rate Scheduler
-            scheduler = ReduceLROnPlateau(optimizer, mode="max", factor=0.5, patience=3)
+            scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3)
 
             # Train model
             training_function(
@@ -254,7 +254,7 @@ class CrossValidationFramework:
                 loss_function=loss_fn,
                 epochs=self.epochs,
                 scheduler=scheduler,
-                prefix=f"{prefix}_inner_{inner_fold}"
+                prefix=f"{prefix}_inner_{inner_fold}",
             )
             
             # Validate
