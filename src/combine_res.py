@@ -179,11 +179,7 @@ def compute_confidence(metric, N_train, N_test, alpha=0.95):
     return CI
 
 
-<<<<<<< HEAD
-def generate_roc_with_ci(exp_name, modality, model_type='resnet10_pretrained', alpha=0.95, n_thresholds=10):
-=======
 def generate_roc_with_ci(exp_name, modality, model_type='resnet10_pretrained', alpha=0.95, n_samples=20):
->>>>>>> 1832683f5e0ba1b457afcaf933af382057083f86
     """
     Generate ROC curve data with confidence intervals across folds.
     Uses WORC-style threshold sampling: collects all thresholds from ROC curves
@@ -279,11 +275,7 @@ def main():
     parser.add_argument('--exp_name', type=str, default='pretrain', help='Experiment name')
     parser.add_argument('--model_type', type=str, default='resnet10_pretrained', help='Model type')
     parser.add_argument('--alpha', type=float, default=0.95, help='Confidence level')
-<<<<<<< HEAD
-    parser.add_argument('--n_thresholds', type=int, default=10, help='Number of thresholds for ROC curve')
-=======
     parser.add_argument('--n_samples', type=int, default=20, help='Number of sample points for ROC curve')
->>>>>>> 1832683f5e0ba1b457afcaf933af382057083f86
 
     args = parser.parse_args()
     
