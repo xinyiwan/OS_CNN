@@ -11,7 +11,7 @@ if project_root not in sys.path:
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.amp import GradScaler, autocast
+# from torch.amp import GradScaler, autocast  # Disabled - not using mixed precision for stability
 from typing import Callable, Dict, Any, Tuple, Optional
 import optuna
 import numpy as np
