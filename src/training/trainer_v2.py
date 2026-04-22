@@ -18,6 +18,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim.swa_utils import AveragedModel
+from torch.amp import GradScaler, autocast
 import numpy as np
 import sklearn.metrics as sk
 from typing import Callable, Tuple, Optional
@@ -126,7 +127,8 @@ def train_model(
     ema_decay: float = 0.96,
 ):
     """
-    Train with AveragedModel EMA, early stopping on val_loss, dual-curve plots.
+    Train with AveragedModel EMA, early stopping on val_loss, dual-curve plots,
+    and AMP mixed precision (fp16 on CUDA, disabled on CPU).
 
     Checkpoints saved to <checkpoint_dir>/ckpt/<prefix>_best.pth.
     Curves    saved to <checkpoint_dir>/curves/<prefix>.png.
@@ -134,6 +136,9 @@ def train_model(
     Returns: (best_val_loss, best_epoch)
     """
     model.to(device)
+    use_amp = (device.type == 'cuda')
+    scaler  = GradScaler(device=device.type, enabled=use_amp)
+    print(f"AMP mixed precision: {'enabled' if use_amp else 'disabled (CPU)'}")
 
     if use_class_weights:
         loss_fn = nn.CrossEntropyLoss(
@@ -167,14 +172,18 @@ def train_model(
         train_preds, train_labels_list = [], []
 
         for batch_data, batch_labels, _ in train_loader:
-            batch_data   = batch_data.to(device).float()
+            batch_data   = batch_data.to(device)   # keep as float32 for autocast to downcast
             batch_labels = batch_labels.to(device)
             optimizer.zero_grad()
-            out  = model(batch_data)
-            loss = loss_fn(out, batch_labels)
-            loss.backward()
+            with autocast(device_type=device.type, enabled=use_amp):
+                out  = model(batch_data)
+                loss = loss_fn(out, batch_labels)
+            scaler.scale(loss).backward()
+            # Unscale before clipping so norms are in true fp32 scale
+            scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            optimizer.step()
+            scaler.step(optimizer)
+            scaler.update()
             epoch_train_loss += loss.item()
             with torch.no_grad():
                 train_preds.extend(F.softmax(out.float(), dim=-1)[:, 1].tolist())
@@ -197,11 +206,12 @@ def train_model(
 
         with torch.no_grad():
             for val_data, val_labels, _ in val_loader:
-                val_data   = val_data.to(device).float()
+                val_data   = val_data.to(device)
                 val_labels = val_labels.to(device)
-                val_out    = ema_model(val_data)
-                epoch_val_loss += loss_fn(val_out, val_labels).item()
-                val_preds.extend(F.softmax(val_out, dim=-1)[:, 1].tolist())
+                with autocast(device_type=device.type, enabled=use_amp):
+                    val_out = ema_model(val_data)
+                    epoch_val_loss += loss_fn(val_out, val_labels).item()
+                val_preds.extend(F.softmax(val_out.float(), dim=-1)[:, 1].tolist())
                 val_labels_list.extend(val_labels.tolist())
 
         val_loss = epoch_val_loss / len(val_loader)
