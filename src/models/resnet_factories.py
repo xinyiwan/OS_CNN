@@ -18,29 +18,27 @@ from models.small_3dcnn import Small3DCNN
 
 class BaseResNetFactory(BaseModelFactory):
     """Base class for all ResNet variants"""
-    
+
+    _FIXED_WIDTH = 1   # single option — not a tunable HP
+
     def __init__(self, model_type: ModelType):
         self.model_type = model_type
-    
-    def suggest_hyperparameters(self, trial: optuna.Trial) -> Dict[str, Any]:
 
-        # Common ResNet hyperparameters
-        # remove when using monai resnet
+    def suggest_hyperparameters(self, trial: optuna.Trial) -> Dict[str, Any]:
+        # width is fixed at _FIXED_WIDTH — not sampled
         params = {
-            # "width_multiplier": trial.suggest_categorical("width", [1, 2]),
-            # "drop_rate": trial.suggest_categorical("drop_rate", [0, 0.3]),
+            "drop_rate": trial.suggest_categorical("drop_rate", [0.3, 0.5]),
         }
         return params
 
     def create_model(self, hyperparams: Dict[str, Any]) -> nn.Module:
-        
         return resnet10(
             spatial_dims=3,
             n_input_channels=2,
-            pretrained=hyperparams.get("pertrained", False),
+            pretrained=False,
             progress=True,
             num_classes=2,
-            feed_forward=True
+            feed_forward=True,
         )        
     
     def create_model_wide(self, hyperparams: Dict[str, Any]) -> nn.Module:
@@ -80,14 +78,34 @@ class BaseResNetFactory(BaseModelFactory):
         return nn.CrossEntropyLoss()
 
 class ResNetFactory(BaseResNetFactory):
-    """Standard ResNet without SN or GP"""
+    """Non-pretrained ResNet10 trained from scratch."""
     def __init__(self):
         super().__init__(ModelType.RESNET)
-    
+
     def suggest_hyperparameters(self, trial: optuna.Trial) -> Dict[str, Any]:
-        params = super().suggest_hyperparameters(trial)
-        # No additional parameters for base ResNet
-        return params
+        return super().suggest_hyperparameters(trial)  # inherits drop_rate
+
+    def create_model(self, hyperparams: Dict[str, Any]) -> nn.Module:
+        model = resnet10(
+            spatial_dims=3,
+            n_input_channels=2,
+            pretrained=False,
+            progress=True,
+            num_classes=2,
+            feed_forward=True,
+        )
+        # MONAI resnet10 FC is a plain Linear — replace with Dropout + Linear
+        # so drop_rate is actually applied to the model.
+        drop_rate = hyperparams.get("drop_rate", 0.0)
+        model.fc = nn.Sequential(
+            nn.Dropout(p=drop_rate),
+            nn.Linear(512, 2),
+        )
+        return model
+
+    def create_optimizer(self, model: nn.Module, hyperparams: Dict[str, Any]) -> optim.Optimizer:
+        # Train all parameters — backbone is not pretrained so full training is needed.
+        return optim.Adam(model.parameters(), lr=hyperparams["learning_rate"])
 
 class ResNetPretrainedFactory(BaseResNetFactory):
     """Pretrained ResNet"""

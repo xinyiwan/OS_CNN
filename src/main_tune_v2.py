@@ -40,7 +40,6 @@ project_root = '/projects/prjs1779/Osteosarcoma/OS_CNN/src'
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-import copy
 import json
 import shutil
 import argparse
@@ -50,12 +49,10 @@ from pathlib import Path
 import numpy as np
 import sklearn.metrics as sk
 import torch
-import torch.nn as nn
-import torch.optim as optim
 import optuna
 from optuna.pruners import SuccessiveHalvingPruner
 from optuna.visualization import plot_optimization_history, plot_param_importances
-from sklearn.model_selection import StratifiedKFold, train_test_split
+from sklearn.model_selection import train_test_split
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 import torch.nn.functional as F
@@ -66,7 +63,7 @@ from config.experiment_config import ExperimentConfig
 from config.model_types import ModelType
 from models.model_factory import ModelRegistry
 from models.resnet_factories import (
-    BaseResNetFactory, ResNetPretrainedFactory, Small3DCNNFactory,
+    ResNetFactory, ResNetPretrainedFactory, Small3DCNNFactory,
     ResNetGPFactory, ResNetSNFactory, ResNetSNGPFactory,
 )
 from cross_validation.cv_framework import CrossValidationFramework
@@ -76,7 +73,7 @@ from training.trainer_v2 import (
     train_model,
     load_checkpoint_v2,
 )
-from utils.helpers import setup_experiment_paths, suggest_common_hyperparameters, calculate_ensemble_metric
+from utils.helpers import suggest_common_hyperparameters, calculate_ensemble_metric
 from data.load_datapath import load_os_by_modality_version
 
 
@@ -267,7 +264,7 @@ def main():
 
     # ── Model registry ────────────────────────────────────────────────────────
     model_registry = ModelRegistry()
-    model_registry.register_model(ModelType.RESNET,       BaseResNetFactory)
+    model_registry.register_model(ModelType.RESNET,       ResNetFactory)
     model_registry.register_model(ModelType.RESNET_PRE_10, ResNetPretrainedFactory)
     model_registry.register_model(ModelType.RESNET_SN,    ResNetSNFactory)
     model_registry.register_model(ModelType.RESNET_GP,    ResNetGPFactory)
