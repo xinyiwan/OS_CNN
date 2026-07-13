@@ -4,8 +4,7 @@ Deep-learning pipeline for **binary classification of osteosarcoma** from 3D MRI
 volumes and their tumour segmentations. Each sample is a 2-channel 3D volume
 (**channel 0 = MRI image, channel 1 = segmentation mask**). The pipeline uses 3D
 ResNet / CNN backbones, **nested cross-validation** for unbiased evaluation,
-**Optuna** for hyperparameter tuning, and optional uncertainty-aware variants
-(Spectral Normalization + Gaussian Process).
+**Optuna** for hyperparameter tuning.
 
 ## Quick start
 
@@ -38,9 +37,6 @@ On SLURM, use [scripts/run_tune_v2.sh](scripts/run_tune_v2.sh) (one line per fol
 |---|---|
 | `resnet` | MONAI ResNet10 from scratch |
 | `resnet10_pretrained` | Pretrained ResNet10 (1→2 channel adapt, frozen backbone) |
-| `resnet_sn` | ResNet + Spectral Normalization |
-| `resnet_gp` | ResNet + Gaussian Process head |
-| `resnet_sngp` | ResNet + SN + GP |
 | `small_3dcnn` | Lightweight 3D CNN for small datasets |
 
 ## How it works
