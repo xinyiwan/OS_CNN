@@ -18,7 +18,8 @@ from config.model_types import ModelType
 from models.model_factory import ModelRegistry
 from models.resnet_factories import BaseResNetFactory, ResNetPretrainedFactory, Small3DCNNFactory, ResNetGPFactory, ResNetSNFactory, ResNetSNGPFactory 
 from cross_validation.cv_framework import CrossValidationFramework
-from training.trainer_improved import create_training_function, create_testing_function
+# from training.trainer_improved import create_training_function, create_testing_function
+from training.trainer import create_training_function, create_testing_function
 from utils.callbacks import BestModelCallback
 from utils.helpers import setup_experiment_paths, suggest_common_hyperparameters, calculate_ensemble_metric
 from data.load_datapath import load_os_by_modality_version
@@ -249,9 +250,10 @@ def main():
             trial=trial,
             patience=7,  # Increased from 5
             # NEW PARAMETERS:
-            label_smoothing=0.1,
-            use_class_weights=True,
-            schedule_on='loss'  # or 'loss' if you prefer
+            # change label smoothing to 0.0 for pseudo-label training, otherwise 0.1
+            # label_smoothing=0.0,
+            # use_class_weights=True,
+            # schedule_on='loss'  # or 'loss' if you prefer
         )
         test_fn = create_testing_function(
             model_type=args.model_type,
