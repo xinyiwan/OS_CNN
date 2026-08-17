@@ -79,7 +79,7 @@ class CrossValidationFramework:
         
         # Train dataset with augmentation
         # Change to pseudo-label dataset for test
-        train_dataset = OsteosarcomaDataset(
+        train_dataset = OsteosarcomaDatasetWithPseudoLabels(
             data_df=train_df,
             image_col='image_path',
             segmentation_col='segmentation_path',
@@ -97,7 +97,7 @@ class CrossValidationFramework:
         )
         
         # Validation dataset (no augmentation)
-        val_dataset = OsteosarcomaDataset(
+        val_dataset = OsteosarcomaDatasetWithPseudoLabels(
             data_df=val_df,
             image_col='image_path',
             segmentation_col='segmentation_path',
@@ -115,7 +115,7 @@ class CrossValidationFramework:
         )
         
         # Test dataset (no augmentation)
-        test_dataset = OsteosarcomaDataset(
+        test_dataset = OsteosarcomaDatasetWithPseudoLabels(
             data_df=test_df,
             image_col='image_path',
             segmentation_col='segmentation_path',
