@@ -27,8 +27,11 @@ class BaseResNetFactory(BaseModelFactory):
     def suggest_hyperparameters(self, trial: optuna.Trial) -> Dict[str, Any]:
         # width is fixed at _FIXED_WIDTH — not sampled
         params = {
-            "drop_rate": trial.suggest_categorical("drop_rate", [0.3, 0.5]),
+            # "drop_rate": trial.suggest_categorical("drop_rate", [0.3, 0.5]),
+            # pseudo exp
+            "drop_rate": trial.suggest_categorical("drop_rate", [0]),
         }
+
         return params
 
     def create_model(self, hyperparams: Dict[str, Any]) -> nn.Module:
@@ -116,7 +119,10 @@ class ResNetPretrainedFactory(BaseResNetFactory):
         params = super().suggest_hyperparameters(trial)
         params.update({
             "pretrained": True,
-            "n_freeze_layers": trial.suggest_categorical("n_freeze_layers", [4]),
+            # "n_freeze_layers": trial.suggest_categorical("n_freeze_layers", [4]),
+
+            # pseudo experiment
+            "n_freeze_layers": trial.suggest_categorical("n_freeze_layers", [2, 3, 4]),
         })
 
         return params
@@ -169,13 +175,21 @@ class ResNetPretrainedFactory(BaseResNetFactory):
             
             # Replace first conv layer
             model.conv1 = new_conv
+
             # add fc layer
+            # model.fc = nn.Sequential(
+            #     nn.Dropout(0.3),           # Strong regularization
+            #     nn.Linear(512, 64),        # Small intermediate layer
+            #     nn.ReLU(),
+            #     nn.Dropout(0.3),
+            #     nn.Linear(64, 2)
+            # )
+
+            # pseudo experiment
+            drop_rate = hyperparams.get("drop_rate", 0.0)
             model.fc = nn.Sequential(
-                nn.Dropout(0.3),           # Strong regularization
-                nn.Linear(512, 64),        # Small intermediate layer
-                nn.ReLU(),
-                nn.Dropout(0.3),
-                nn.Linear(64, 2)
+                nn.Dropout(p=drop_rate),
+                nn.Linear(512, 2),
             )
             
             return model
