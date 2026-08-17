@@ -4,7 +4,7 @@
 #SBATCH -t 2-00:00:00
 #SBATCH -o /projects/prjs1779/Osteosarcoma/output_ft/%x_%j.out
 #SBATCH -e /projects/prjs1779/Osteosarcoma/output_ft_err/%x_%j.err
-#SBATCH --job-name=OS-v2-res
+#SBATCH --job-name=OS-v2-resnet
 
 # ----- Load modules -----
 module purge
