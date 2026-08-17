@@ -51,6 +51,7 @@ def create_training_function(model_type: str,
                              checkpoint_dir: str = "./checkpoints", 
                              patience: int = 5, # for test 3
                              trial=None,
+                             if_ema: bool = False,  # Whether to use EMA
                              ema_decay: float = 0.999) -> Callable:  # Added ema_decay parameter
     
     def base_trainer(model: nn.Module,
@@ -72,7 +73,10 @@ def create_training_function(model_type: str,
 
         
         # Use optimized EMA (no deepcopy overhead)
-        ema_model = EMA(model, decay=ema_decay, device=device)
+        if if_ema:
+            ema_model = EMA(model, decay=ema_decay, device=device)
+        else:
+            ema_model = None
 
         scaler = GradScaler(device=device)
 
@@ -125,7 +129,8 @@ def create_training_function(model_type: str,
                 scaler.update()  # This updates the GradScaler state
                 
                 # Update EMA model
-                ema_model.update(model)
+                if ema_model is not None:
+                    ema_model.update(model)
 
                 epoch_train_loss += loss.item()
             
@@ -138,7 +143,8 @@ def create_training_function(model_type: str,
             base_model_state = {k: v.clone().cpu() for k, v in model.state_dict().items()}
 
             # Apply EMA parameters to model for validation
-            ema_model.set_to_model(model)
+            if ema_model is not None:
+                ema_model.set_to_model(model)
             model.eval()
             epoch_val_losses = 0
             all_val_preds = []
@@ -198,21 +204,35 @@ def create_training_function(model_type: str,
                     checkpoint_path_base = os.path.join(
                         checkpoint_dir, f"trial_{trial.number}_{prefix}_best.pth")
                     # Get EMA state dict
-                    ema_state_dict = ema_model.get_state_dict()
+                    if ema_model is not None:
+                        ema_state_dict = ema_model.get_state_dict()
 
                     # Save single checkpoint with both base and EMA weights
-                    torch.save({
-                        'epoch': epoch,
-                        'model_state_dict': base_model_state,        # Base model weights
-                        'ema_model_state_dict': ema_state_dict,      # EMA weights
-                        'optimizer_state_dict': optimizer.state_dict(),
-                        'scheduler_state_dict': scheduler.state_dict(),
-                        'scaler_state_dict': scaler.state_dict(),
-                        'train_loss': train_loss,
-                        'val_loss': val_losses,
-                        'val_auc': val_auc,
-                    }, checkpoint_path_base)
-                    print(f"Best Checkpoint (based on EMA) saved at {checkpoint_path_base}")
+                    if ema_model is not None:
+                        torch.save({
+                            'epoch': epoch,
+                            'model_state_dict': base_model_state,        # Base model weights
+                            'ema_model_state_dict': ema_state_dict,      # EMA weights
+                            'optimizer_state_dict': optimizer.state_dict(),
+                            'scheduler_state_dict': scheduler.state_dict(),
+                            'scaler_state_dict': scaler.state_dict(),
+                            'train_loss': train_loss,
+                            'val_loss': val_losses,
+                            'val_auc': val_auc,
+                        }, checkpoint_path_base)
+                        print(f"Best Checkpoint (based on EMA) saved at {checkpoint_path_base}")
+                    else:
+                        torch.save({
+                            'epoch': epoch,
+                            'model_state_dict': base_model_state,        # Base model weights
+                            'optimizer_state_dict': optimizer.state_dict(),
+                            'scheduler_state_dict': scheduler.state_dict(),
+                            'scaler_state_dict': scaler.state_dict(),
+                            'train_loss': train_loss,
+                            'val_loss': val_losses,
+                            'val_auc': val_auc,
+                        }, checkpoint_path_base)
+                        print(f"Best Checkpoint saved at {checkpoint_path_base}")
             else:
                 # Only start counting patience after epoch 10
                 if epoch >= 1: # for test
@@ -237,7 +257,8 @@ def create_training_function(model_type: str,
         print("Training finished")
 
         # Final step: Apply EMA weights to model for final inference
-        ema_model.set_to_model(model)
+        if ema_model is not None:
+            ema_model.set_to_model(model)
         return model  # Now with EMA weights applied
         
 
