@@ -22,8 +22,14 @@ def suggest_common_hyperparameters(trial: optuna.Trial) -> Dict[str, Any]:
     """Suggest hyperparameters common to all models"""
 
     # for test, fix the num_aug and batch size
-    num_aug = trial.suggest_categorical("num_augmentations", [5])
-    batch_size = trial.suggest_categorical("batch_size", [32, 64])
+    # num_aug = trial.suggest_categorical("num_augmentations", [3, 5])
+    # batch_size = trial.suggest_categorical("batch_size", [16])
+
+    # for pseudo experiment
+    num_aug = trial.suggest_categorical("num_augmentations", [1, 3])
+    batch_size = trial.suggest_categorical("batch_size", [1, 4, 8])
+
+
 
     # for test, fix the lr_base\
     # lr_base = trial.suggest_categorical("learning_rate", [1e-4])
